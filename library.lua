@@ -2483,6 +2483,88 @@ function elements.keyfield(box, o)
 	return R.keyfield(box, o)
 end
 
+function elements.label(box, o)
+	local ind = R.nest(o)
+	local left = 10 + ind
+	local w = box.w - 20 - ind
+	local y = R.advance(box, fs + (o.pad or 2))
+	local role = o.color or (o.accent and "accent") or (o.bright and "bright") or "dim"
+	local label = R.tx(box, o.name or o.text or "", R.themecolor(role), o.size or 12, left, y, w)
+	if o.center then label.Center = true end
+	R.ontheme(function()
+		label.Color = R.themecolor(role)
+	end)
+	return {}
+end
+
+function elements.separator(box, o)
+	local ind = R.nest(o)
+	local left = 10 + ind
+	local w = box.w - 20 - ind
+	local y = R.advance(box, o.pad or 10)
+	local line = R.sq(box, edge, 11, left, y + floor((o.pad or 10) / 2) - 1, w, 1)
+	R.ontheme(function()
+		line.Color = edge
+	end)
+	return {}
+end
+
+function elements.cycle(box, o)
+	local ind = R.nest(o)
+	local options = {}
+	for _, opt in ipairs(o.options or {}) do table.insert(options, tostring(opt)) end
+	local c = { options = options, index = 1 }
+	local fy, label, outline, fill, left, w = R.labeled(box, o.name or "cycle", ind)
+	local display = R.tx(box, "", bright, 13, left + 6, fy + 3)
+	local el = box.current
+
+	local function paint()
+		local value = c.options[c.index]
+		R.fit(display, value or "none", w - 12)
+		display.Color = value and bright or dim
+	end
+
+	function c.set(v, silent)
+		if type(v) == "number" then
+			c.index = clamp(floor(v), 1, max(#c.options, 1))
+		elseif v ~= nil then
+			local i = table.find(c.options, tostring(v))
+			c.index = i or c.index
+		end
+		paint()
+		if not silent then R.fire(o.callback, c.options[c.index], c.index) end
+	end
+
+	function c.next()
+		if #c.options == 0 then return end
+		c.set((c.index % #c.options) + 1)
+	end
+
+	function c.save() return c.options[c.index] end
+	function c.load(v) c.set(v, true) end
+
+	R.hitbox(box, {
+		x = left, y = fy, w = w, h = fieldh,
+		click = function() c.next() end,
+		hover = function(state)
+			if state then fill.tween(ghover_t, ghover_b, 0) else fill.tween(gfield_t, gfield_b, 0) end
+			R.snaptween(label, "Color", state and mid or dim)
+		end,
+		when = function() return not el.folded end,
+	})
+
+	R.ontheme(function()
+		label.Color = dim
+		outline.Color = black
+		if fill and fill.color then fill.color(gfield_t, gfield_b) end
+		paint()
+	end)
+
+	R.linkparent(o.parent, c, el)
+	if o.default ~= nil then c.set(o.default, true) else paint() end
+	return c
+end
+
 function R.solid(box)
 	if not (box.h and box.h > 0) then
 		box.h = box.cursor + (8 - elgap)
@@ -2580,12 +2662,22 @@ local bindmode = elements.dropdown(bindbox, {
 	options = { "toggle", "hold", "always" },
 	callback = function(mode) bindtarget.bind(bindtarget.key, mode) end,
 })
+elements.button(bindbox, {
+	name = "reset",
+	callback = function()
+		if not bindtarget then return end
+		bindtarget.bind(nil, "toggle")
+		bindkey.set(nil)
+		bindmode.set("toggle", true)
+		R.closefloat()
+	end,
+})
 R.solid(bindbox)
 
 function R.openbind(t, rel)
 	bindtarget = t
 	bindkey.set(t.key)
-	bindmode.set(t.mode, true)
+	bindmode.set(t.mode or "toggle", true)
 	R.openfloat(bindbox, rel)
 end
 
@@ -4010,6 +4102,9 @@ function R.ovdefault(panel, kind)
 	if kind == "hud" then
 		return v2(floor((vp.X - max(panel.w, 1)) / 2), max(vp.Y - max(panel.h, 40) - 24, inset + 10))
 	end
+	if kind == "indicators" then
+		return v2(10, max(vp.Y - max(panel.h, 40) - 24, inset + 10))
+	end
 
 	return v2(10, floor((vp.Y - max(panel.h, 40)) / 2))
 end
@@ -4286,6 +4381,7 @@ end
 
 function R.refreshhotkeys()
 	if hotkeys.on then R.painthotkeys() end
+	if R.refreshindicators then R.refreshindicators() end
 end
 
 function library.hotkeys(state)
@@ -4296,6 +4392,100 @@ function library.hotkeys(state)
 	if not state then
 		for _, row in ipairs(hotkeys.rows) do
 			row.label.Visible, row.key.Visible = false, false
+		end
+	end
+end
+
+local indicators = {
+	on = false,
+	w = 148,
+	h = header + fs + 28,
+	frame = R.ovframe(360),
+	headbg = R.overlay("Square", { Filled = true, Color = ovheadbg, ZIndex = 369 }),
+	header = R.ovtext("Indicators", ovheadfg, 370),
+	divider = R.overlay("Square", { Filled = true, Color = edge, ZIndex = 370 }),
+	rows = {},
+}
+indicators.pos = R.ovdefault(indicators, "indicators")
+table.insert(ovpanels, indicators)
+indicators.header.Center = true
+local indicatordrawings = { indicators.headbg, indicators.header, indicators.divider }
+R.placeframe(indicators.frame, indicators.pos, indicators.w, indicators.h)
+
+function R.indrow()
+	local row = {
+		label = R.ovtext("", dim, 371),
+		state = R.ovtext("", accent, 371),
+	}
+	table.insert(indicatordrawings, row.label)
+	table.insert(indicatordrawings, row.state)
+	table.insert(indicators.rows, row)
+	return row
+end
+
+function R.paintindicators()
+	local inset, pad, rowh = 8, 8, fs + 6
+	local active = {}
+	for _, t in ipairs(toggles) do
+		if t.value then table.insert(active, t) end
+	end
+	local count = max(#active, 1)
+	for i = #indicators.rows + 1, count do R.indrow() end
+
+	local innerw = 72
+	local probe = indicators.rows[1]
+	for _, t in ipairs(active) do
+		probe.label.Text = t.name
+		probe.state.Text = "on"
+		innerw = max(innerw, R.textwidth(probe.label) + R.textwidth(probe.state) + 24)
+	end
+
+	indicators.w = inset * 2 + pad * 2 + innerw + 30
+	indicators.h = inset * 2 + header + 4 + (count - 1) * rowh + fs + 6
+	if not indicators.moved then indicators.pos = R.ovdefault(indicators, "indicators") end
+	local px, py = floor(indicators.pos.X), floor(indicators.pos.Y)
+	R.placeoverlaychrome(indicators, px, py, true)
+
+	local x = px + inset
+	local y = py + inset
+	local inner = indicators.w - inset * 2
+
+	for i, row in ipairs(indicators.rows) do
+		local t = active[i]
+		local ry = y + header + 4 + (i - 1) * rowh
+		if t then
+			R.fit(row.label, t.name, inner - pad * 2 - R.textwidth(probe.state) - 8)
+			row.state.Text = "on"
+			row.label.Position = v2(x + pad, ry)
+			row.state.Position = v2(x + inner - pad - R.textwidth(row.state), ry)
+			row.label.Color = bright
+			row.state.Color = accent
+			row.label.Visible, row.state.Visible = indicators.on, indicators.on
+			if indicators.on then row.label.Transparency, row.state.Transparency = 1, 1 end
+		elseif #active == 0 and i == 1 then
+			row.label.Text, row.state.Text = "none", ""
+			row.label.Color = dim
+			row.label.Position = v2(x + pad, ry)
+			row.label.Visible, row.state.Visible = indicators.on, false
+			if indicators.on then row.label.Transparency = 1 end
+		else
+			row.label.Visible, row.state.Visible = false, false
+		end
+	end
+end
+
+function R.refreshindicators()
+	if indicators.on then R.paintindicators() end
+end
+
+function library.indicators(state)
+	indicators.on = state
+	if state then R.paintindicators() end
+	R.showovframe(indicators.frame, state)
+	R.showlist(indicatordrawings, state)
+	if not state then
+		for _, row in ipairs(indicators.rows) do
+			row.label.Visible, row.state.Visible = false, false
 		end
 	end
 end
@@ -4822,6 +5012,9 @@ function R.hitoverlay(m)
 	if hotkeys.on and R.inside(m, hotkeys.pos.X, hotkeys.pos.Y, hotkeys.w, hotkeys.h) then
 		return hotkeys
 	end
+	if indicators.on and R.inside(m, indicators.pos.X, indicators.pos.Y, indicators.w, indicators.h) then
+		return indicators
+	end
 	if playerlist.on and R.inside(m, playerlist.pos.X, playerlist.pos.Y, playerlist.w, playerlist.h) then
 		return playerlist
 	end
@@ -4884,7 +5077,9 @@ function R.moveoverlay(panel, pos, snap)
 		if not R.shiftpanel(panel, playerlistdrawings) then R.paintplayerlist() end
 	elseif panel == hud then
 		if not R.shiftpanel(panel, huddrawings) then R.layouthud() end
-	else
+	elseif panel == indicators then
+		if not R.shiftpanel(panel, indicatordrawings) then R.paintindicators() end
+	elseif panel == hotkeys then
 		if not R.shiftpanel(panel, hotkeydrawings) then R.painthotkeys() end
 	end
 end
@@ -5020,6 +5215,7 @@ function R.refreshtheme(opts)
 		if overlay_needs_content then
 			if watermark and watermark.on and R.paintwatermark then R.paintwatermark(lastfps) end
 			if hotkeys and hotkeys.on and R.painthotkeys then R.painthotkeys() end
+			if indicators and indicators.on and R.paintindicators then R.paintindicators() end
 			if playerlist and playerlist.on and R.paintplayerlist then R.paintplayerlist() end
 			if hud and hud.on and R.painthud then R.painthud(0) end
 		end
@@ -5140,6 +5336,7 @@ function library.configtab(name)
 		callback = library.watermarkparts,
 	})
 	local keysui = settings.toggle({ name = "hotkeys", default = false, callback = library.hotkeys })
+	local indui = settings.toggle({ name = "indicators", default = false, callback = library.indicators })
 	local plist = settings.toggle({ name = "playerlist", default = false, callback = library.playerlist })
 	local hudui = settings.toggle({ name = "hud", default = false, callback = library.hud })
 	settings.dropdown({
@@ -5152,6 +5349,7 @@ function library.configtab(name)
 	})
 	library.watermark(mark.value)
 	library.hotkeys(keysui.value)
+	library.indicators(indui.value)
 	library.playerlist(plist.value)
 	library.hud(hudui.value)
 
@@ -5784,6 +5982,10 @@ R.connect(camera:GetPropertyChangedSignal("ViewportSize"), function()
 	if hotkeys.on and not hotkeys.moved then
 		hotkeys.pos = R.ovdefault(hotkeys, "hotkeys")
 		R.painthotkeys()
+	end
+	if indicators.on and not indicators.moved then
+		indicators.pos = R.ovdefault(indicators, "indicators")
+		R.paintindicators()
 	end
 	if playerlist.on and not playerlist.moved then
 		playerlist.pos = R.ovdefault(playerlist, "playerlist")
