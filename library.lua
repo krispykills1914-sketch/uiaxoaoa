@@ -427,6 +427,7 @@ local ui_fx = {
 }
 local fx_blur, fx_cc, fx_dimgui, fx_dim
 local logo_gui, logo_vp, logo_model, logo_part, logo_spin, logo_assets_data
+local logo_images, logo_em = {}, nil
 local LOGO_SCALE = 3.4
 
 local function R_b64decode(data)
@@ -572,8 +573,9 @@ local function R_build_logo_mesh(parent)
 	meshPart.Material = Enum.Material.Neon
 	meshPart.Color = accent
 	meshPart.CFrame = CFrame.new(0, 0, 0)
+	-- keep EditableMesh alive — destroying it after CreateMeshPartAsync blanks the mesh
+	logo_em = em
 	meshPart.Parent = parent
-	pcall(function() em:Destroy() end)
 	return meshPart
 end
 
@@ -594,6 +596,7 @@ local function R_build_logo_fallback(parent)
 	part.CFrame = CFrame.new(0, 0, 0)
 	part.Parent = parent
 
+	logo_images = {}
 	if asset then
 		local sg = Instance.new("SurfaceGui")
 		sg.Face = Enum.NormalId.Front
@@ -614,7 +617,7 @@ local function R_build_logo_fallback(parent)
 		sg2.Parent = part
 		local img2 = sg2:FindFirstChildOfClass("ImageLabel")
 		if img2 then img2.ImageColor3 = accent end
-		part._logoImages = { img, img2 }
+		logo_images = { img, img2 }
 	end
 	return part
 end
@@ -624,12 +627,13 @@ local function R_paint_logo()
 	pcall(function()
 		logo_part.Color = accent
 		logo_part.Material = Enum.Material.Neon
+		local light = logo_part:FindFirstChildOfClass("PointLight")
+		if light then light.Color = accent end
 	end)
-	local imgs = logo_part._logoImages
-	if imgs then
-		for _, img in ipairs(imgs) do
-			pcall(function() img.ImageColor3 = accent end)
-		end
+	for _, img in ipairs(logo_images or {}) do
+		pcall(function()
+			img.ImageColor3 = accent
+		end)
 	end
 end
 
@@ -641,7 +645,8 @@ local function R_destroy_logo()
 	if logo_gui then
 		pcall(function() logo_gui:Destroy() end)
 	end
-	logo_gui, logo_vp, logo_model, logo_part = nil, nil, nil, nil
+	logo_gui, logo_vp, logo_model, logo_part, logo_em = nil, nil, nil, nil, nil
+	logo_images = {}
 end
 
 local function R_ensure_logo()
@@ -672,33 +677,79 @@ local function R_ensure_logo()
 	vp.Position = UDim2.fromScale(0, 0)
 	vp.Ambient = Color3.new(1, 1, 1)
 	vp.LightColor = Color3.new(1, 1, 1)
-	vp.LightDirection = Vector3.new(0, -0.2, -1)
+	vp.LightDirection = Vector3.new(-0.4, -0.35, -1)
 	vp.Parent = gui
 
 	local world = Instance.new("WorldModel")
 	world.Parent = vp
 
 	local cam = Instance.new("Camera")
-	cam.CFrame = CFrame.new(Vector3.new(0, 0, 7.2), Vector3.new(0, 0, 0))
+	cam.FieldOfView = 40
+	cam.CFrame = CFrame.new(Vector3.new(0, 0, 9.5), Vector3.new(0, 0, 0))
 	cam.Parent = vp
 	vp.CurrentCamera = cam
 
-	local part = R_build_logo_mesh(world) or R_build_logo_fallback(world)
-	if not part then
-		gui:Destroy()
-		return
-	end
-
-	logo_gui, logo_vp, logo_model, logo_part = gui, vp, world, part
-	R_paint_logo()
+	logo_gui, logo_vp, logo_model = gui, vp, world
+	gui.Enabled = library.open and ui_fx.logo or false
 
 	local ang = 0
 	logo_spin = run.RenderStepped:Connect(function(dt)
 		if not (library.open and ui_fx.logo and logo_part) then return end
 		ang = (ang + dt * 0.55) % (math.pi * 2)
 		pcall(function()
-			logo_part.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, ang, 0)
+			logo_part.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(8), ang, math.rad(-6))
 		end)
+	end)
+
+	-- CreateMeshPartAsync yields — never build on the input/theme thread
+	task.spawn(function()
+		if logo_gui ~= gui then return end
+
+		local function mount(part, images)
+			if not part or logo_gui ~= gui then
+				if part then pcall(function() part:Destroy() end) end
+				return false
+			end
+			pcall(function()
+				local light = Instance.new("PointLight")
+				light.Brightness = 2.2
+				light.Range = 18
+				light.Color = accent
+				light.Parent = part
+			end)
+			logo_part = part
+			logo_images = images or {}
+			R_paint_logo()
+			if library.open and ui_fx.logo then
+				gui.Enabled = true
+			end
+			return true
+		end
+
+		-- show exact silhouette immediately, then upgrade to neon mesh if it works
+		local fallback = R_build_logo_fallback(world)
+		if not mount(fallback, logo_images) then
+			return
+		end
+
+		local mesh = R_build_logo_mesh(world)
+		if logo_gui ~= gui then
+			if mesh then pcall(function() mesh:Destroy() end) end
+			return
+		end
+		local okSize, magOk = mesh and pcall(function()
+			return mesh.Size.Magnitude > 0.05
+		end)
+		if mesh and okSize and magOk then
+			local old = logo_part
+			if mount(mesh, {}) and old and old ~= mesh then
+				pcall(function() old:Destroy() end)
+			elseif mesh then
+				pcall(function() mesh:Destroy() end)
+			end
+		elseif mesh then
+			pcall(function() mesh:Destroy() end)
+		end
 	end)
 end
 
@@ -1407,7 +1458,9 @@ function R.cliptooffset(box, offset)
 				el.clipped = true
 				for _, s in ipairs(objs) do
 					clipped[s] = true
-					s.Visible = false
+					pcall(function()
+						s.Visible = false
+					end)
 				end
 			end
 		else
@@ -1415,7 +1468,7 @@ function R.cliptooffset(box, offset)
 			if cut ~= el.clipped then
 				el.clipped = cut
 				for _, s in ipairs(objs) do clipped[s] = cut or nil end
-				R.refresh(objs)
+				pcall(R.refresh, objs)
 			end
 		end
 	end
@@ -3317,20 +3370,23 @@ function library.select(tab)
 	for _, t in ipairs(tabs) do
 		pcall(R.painttab, t)
 	end
+	-- tab-bar chrome only on the click thread — column layout + full refresh are heavy
+	-- (thousands of Drawing objects) and crash some clients when run inside InputBegan
 	pcall(R.layouttabs)
-	pcall(function()
-		if not tab or not tab.columns then
-			return
-		end
-		for side, column in ipairs(tab.columns) do
-			pcall(R.layoutcolumn, column, side)
-		end
-	end)
-	-- never yield here (tab click runs on InputBegan — Wait/build crashes clients)
+	local gen = (library._selgen or 0) + 1
+	library._selgen = gen
 	task.defer(function()
-		if library.active ~= tab then
+		if library._selgen ~= gen or library.active ~= tab then
 			return
 		end
+		pcall(function()
+			if not tab or not tab.columns then
+				return
+			end
+			for side, column in ipairs(tab.columns) do
+				pcall(R.layoutcolumn, column, side)
+			end
+		end)
 		pcall(R.refresh)
 		if tab and type(tab._ensure) == "function" then
 			pcall(tab._ensure)
@@ -3438,26 +3494,51 @@ function library.tab(name)
 				page = found
 			end
 			if not page or page == box.page or not box.pages then return end
-			if popup then popup.close() end
+			pcall(function()
+				if popup then popup.close() end
+			end)
 			box.page.first, box.page.offset, box.page.cursor = box.first, box.offset, box.cursor
 			box.page = page
 			box.elements, box.cursor = page.elements, page.cursor
-			box.first, box.offset = page.first, page.offset
-			box.scroller.offset = page.offset
+			box.first, box.offset = page.first or 1, page.offset or 0
 
+			-- mark visibility only — never layout/refresh on the InputBegan thread
 			for _, p in ipairs(box.pages) do
 				local hide = p ~= page
 				for _, el in ipairs(p.elements) do
 					el.clipped = hide or nil
 					for _, s in ipairs(el.objects or {}) do
 						clipped[s] = hide or nil
-						if hide then s.Visible = false end
+						if hide then
+							pcall(function()
+								s.Visible = false
+							end)
+						end
 					end
 				end
 			end
-			paintsubs(true)
-			R.layoutcolumn(column, index)
-			R.refresh()
+			paintsubs(false)
+
+			local gen = (box._subgen or 0) + 1
+			box._subgen = gen
+			task.defer(function()
+				if box._subgen ~= gen or box.page ~= page then
+					return
+				end
+				pcall(function()
+					local off = page.offset or 0
+					box.offset = off
+					if box.scroller then
+						box.scroller.offset = off
+					end
+				end)
+				pcall(paintsubs, true)
+				pcall(R.layoutcolumn, column, index)
+				-- refresh this groupbox only (full UI refresh on subtab was crashing clients)
+				pcall(function()
+					R.refresh(box.items)
+				end)
+			end)
 		end
 
 		function box.subtab(name)
@@ -5727,6 +5808,7 @@ function library.applytheme(data, silent, syncpickers)
 	data = data or {}
 	R.setthemelocals(data)
 	themesnap = R.gettheme()
+	pcall(R_paint_logo)
 
 	local keys = {}
 	local count = 0
@@ -5736,36 +5818,52 @@ function library.applytheme(data, silent, syncpickers)
 	end
 
 	local full = not (count > 0 and count <= 2 and not syncpickers)
-	-- finish any in-flight color tweens so old theme hues can't linger
-	if R.cleartweens then R.cleartweens() end
+	local doSync = syncpickers == true or silent ~= true
+	local gen = (library._themegen or 0) + 1
+	library._themegen = gen
 
-	-- single-key picker edits: targeted paint, never rebuild hatch geometry
-	if not full then
-		R.refreshtheme({ keys = keys })
+	local function finish()
+		if library._themegen ~= gen then
+			return
+		end
+		-- finish any in-flight color tweens so old theme hues can't linger
+		if R.cleartweens then pcall(R.cleartweens) end
+
+		-- single-key picker edits: targeted paint, never rebuild hatch geometry
+		if not full then
+			pcall(R.refreshtheme, { keys = keys })
+		else
+			pcall(R.refreshtheme, { syncpickers = doSync })
+			for _, t in ipairs(tabs) do
+				if R.painttab then pcall(R.painttab, t) end
+			end
+		end
+
+		-- snap every control to live theme colors (dropdown rows, hovers, grads, etc.)
+		if R.firetheme then pcall(R.firetheme) end
+		for _, hb in ipairs(hitboxes) do
+			if hb.hover then pcall(hb.hover, false) end
+		end
+		if R.cleartweens then pcall(R.cleartweens) end
+		if R.firetheme then pcall(R.firetheme) end -- second pass after hover snaps
+		-- re-assert chrome alphas last so hover/tween snaps cannot leave opaque backings
+		if R.applymainalphas then pcall(R.applymainalphas) end
+		if R.applyoverlayalphas then
+			for _, panel in ipairs(ovpanels) do
+				if panel.frame then pcall(R.applyoverlayalphas, panel.frame) end
+			end
+		end
+
+		if not silent then
+			library.notify({ { "theme ", "bright" }, { "applied", "accent" } })
+		end
+	end
+
+	-- full preset/file applies storm Drawing + firetheme; never do that on InputBegan
+	if full then
+		task.defer(finish)
 	else
-		R.refreshtheme({ syncpickers = syncpickers == true or silent ~= true })
-		for _, t in ipairs(tabs) do
-			if R.painttab then R.painttab(t) end
-		end
-	end
-
-	-- snap every control to live theme colors (dropdown rows, hovers, grads, etc.)
-	if R.firetheme then R.firetheme() end
-	for _, hb in ipairs(hitboxes) do
-		if hb.hover then pcall(hb.hover, false) end
-	end
-	if R.cleartweens then R.cleartweens() end
-	if R.firetheme then R.firetheme() end -- second pass after hover snaps
-	-- re-assert chrome alphas last so hover/tween snaps cannot leave opaque backings
-	if R.applymainalphas then R.applymainalphas() end
-	if R.applyoverlayalphas then
-		for _, panel in ipairs(ovpanels) do
-			if panel.frame then R.applyoverlayalphas(panel.frame) end
-		end
-	end
-
-	if not silent then
-		library.notify({ { "theme ", "bright" }, { "applied", "accent" } })
+		finish()
 	end
 end
 
@@ -5976,6 +6074,14 @@ function library.configtab(name)
 
 	local themeBuilding = false
 	local themeReady = false
+	local themeBuildToken = 0
+	local customPage
+	for _, p in ipairs(theme.pages or {}) do
+		if p.name == "custom" then
+			customPage = p
+			break
+		end
+	end
 	local coreThemeFields = {
 		{ "accent", "accent" },
 		{ "bright text", "bright" },
@@ -6007,10 +6113,20 @@ function library.configtab(name)
 		{ "grad accent bot", "gaccent_b" },
 	}
 
+	-- pin new pickers onto the custom page even if the user switched subtabs mid-build
 	local function addThemePicker(entry)
 		local label, key = entry[1], entry[2]
 		local alphakey = entry.alphakey
 		local themecur = R.gettheme()
+		local view = theme.page
+		local viewFirst, viewOffset, viewCursor = theme.first, theme.offset, theme.cursor
+		if customPage and theme.page ~= customPage then
+			theme.page = customPage
+			theme.elements = customPage.elements
+			theme.cursor = customPage.cursor
+			theme.first = customPage.first
+			theme.offset = customPage.offset
+		end
 		local picker = theme.colorpicker({
 			name = label,
 			default = themecur[key],
@@ -6027,6 +6143,16 @@ function library.configtab(name)
 		})
 		picker.alphakey = alphakey
 		themepickers[key] = picker
+		if customPage then
+			customPage.cursor = theme.cursor
+		end
+		if view and view ~= customPage then
+			theme.page = view
+			theme.elements = view.elements
+			theme.cursor = viewCursor
+			theme.first = viewFirst
+			theme.offset = viewOffset
+		end
 	end
 
 	local function layoutThemeColumn()
@@ -6037,19 +6163,27 @@ function library.configtab(name)
 		if column then
 			pcall(R.layoutcolumn, column, 1)
 		end
-		pcall(R.refresh)
+		-- only refresh the theme groupbox — full R.refresh storms crash clients
+		pcall(function()
+			R.refresh(theme.items)
+		end)
 	end
 
 	local function buildThemePickers(list, done)
+		themeBuildToken += 1
+		local token = themeBuildToken
 		task.spawn(function()
-			for i, entry in ipairs(list) do
+			for _, entry in ipairs(list) do
+				if token ~= themeBuildToken then
+					break
+				end
 				if not themepickers[entry[2]] then
 					pcall(addThemePicker, entry)
-					run.RenderStepped:Wait()
-					if i % 2 == 0 then
-						pcall(layoutThemeColumn)
-					end
+					task.wait()
 				end
+			end
+			if token ~= themeBuildToken then
+				return
 			end
 			pcall(layoutThemeColumn)
 			if done then
