@@ -172,7 +172,7 @@ local ovheadfg = rgb(255, 255, 255)
 local stripe = contentbg
 local ovstripe = contentbg
 local outline_alpha, stripe_alpha, ovstripe_alpha = 1, 1, 1
-local pattern_on = true
+local pattern_on = false
 local pattern_style = "diagonal"
 local pattern_targets = { ["main ui"] = true, ["overlays"] = true }
 local tabfill, tabhover, tabon = rgb(18, 18, 18), rgb(26, 26, 26), rgb(30, 30, 30)
@@ -478,22 +478,32 @@ end
 function R.step()
 	local now = clock()
 	for s, list in pairs(tweens) do
+		local alive = true
 		for prop, tw in pairs(list) do
-			local t = min((now - tw.start) / tw.duration, 1)
-			s[prop] = R.lerp(tw.from, tw.to, 1 - (1 - t) ^ 3)
-			if t == 1 then list[prop] = nil end
+			local t = min((now - tw.start) / max(tw.duration, 1e-4), 1)
+			local ok = pcall(function()
+				s[prop] = R.lerp(tw.from, tw.to, 1 - (1 - t) ^ 3)
+			end)
+			if not ok then
+				alive = false
+				break
+			end
+			if t >= 1 then list[prop] = nil end
 		end
-		if next(list) == nil then tweens[s] = nil end
+		if not alive or next(list) == nil then tweens[s] = nil end
 	end
 	if next(tweens) == nil then
-		animloop:Disconnect()
+		if animloop then animloop:Disconnect() end
 		animloop = nil
 	end
 end
 
 function R.tween(s, prop, to, duration)
+	if not s or to == nil then return end
+	local ok, from = pcall(function() return s[prop] end)
+	if not ok or from == nil then return end
 	tweens[s] = tweens[s] or {}
-	tweens[s][prop] = { from = s[prop], to = to, start = clock(), duration = duration or speed }
+	tweens[s][prop] = { from = from, to = to, start = clock(), duration = duration or speed }
 	animloop = animloop or run.RenderStepped:Connect(R.step)
 end
 
@@ -3634,6 +3644,9 @@ function R.patterncolor(base)
 	return base:Lerp(black, 0.2)
 end
 
+local patternsegcache = {}
+local mainhatchpool -- style:pw:ph once drawings exist for that geometry
+
 function R.patternsegs(style, px, py, pw, ph)
 	local segs = {}
 	if pw < 2 or ph < 2 then return segs end
@@ -3641,6 +3654,7 @@ function R.patternsegs(style, px, py, pw, ph)
 		table.insert(segs, { a, b })
 	end
 	if style == "skeet" then
+		-- classic uncapped skeet (same as original): 2px cols, 4px dashes, 1px gap
 		local colw, segh, gap = 2, 4, 1
 		local col = 0
 		for x = px, px + pw - 1, colw do
@@ -3669,22 +3683,86 @@ function R.patternsegs(style, px, py, pw, ph)
 	return segs
 end
 
+function R.patternsegs_cached(style, pw, ph)
+	pw, ph = floor(pw), floor(ph)
+	if pw < 2 or ph < 2 then return {} end
+	local key = string.format("%s:%d:%d", style or "diagonal", pw, ph)
+	local cached = patternsegcache[key]
+	if cached then return cached end
+	cached = R.patternsegs(style, 0, 0, pw, ph)
+	patternsegcache[key] = cached
+	return cached
+end
+
+function R.clearpatterncache()
+	table.clear(patternsegcache)
+end
+
+-- Drop geometry keys so the next apply can rebuild pools after a real style/size change.
+-- Does not destroy existing Drawing lines (reused when the same pool is needed again).
+function R.invalidatepatternpools()
+	R.clearpatterncache()
+	mainhatchpool = nil
+	for _, panel in ipairs(ovpanels or {}) do
+		local frame = panel and panel.frame
+		if frame then
+			frame._hatchpool = nil
+			frame._hatchpos = nil
+			frame._hatchsegs = nil
+		end
+	end
+end
+
 function R.applymainpattern()
 	local px, py, pw, ph = 8, 8, width - 16, height - 16
-	local segs = R.patternenabled("main ui") and R.patternsegs(pattern_style, px, py, pw, ph) or {}
+	pw, ph = floor(pw), floor(ph)
+	local enabled = R.patternenabled("main ui")
+	local pool = string.format("%s:%d:%d", pattern_style, pw, ph)
 	local color = R.patterncolor(stripe)
-	while #hatchlines < #segs do
-		table.insert(hatchlines, R.add("Line", { Color = color, Thickness = 1, ZIndex = 7 }))
+	local show = enabled and library.open
+
+	if not enabled then
+		for _, s in ipairs(hatchlines) do
+			hidden[s] = true
+			s.Visible = false
+		end
+		return
 	end
+
+	local segs = R.patternsegs_cached(pattern_style, pw, ph)
+	local origin = v2(px, py)
+
+	-- only allocate Drawing lines when geometry pool actually changes
+	if mainhatchpool ~= pool then
+		while #hatchlines < #segs do
+			table.insert(hatchlines, R.add("Line", { Color = color, Thickness = 1, ZIndex = 7 }))
+		end
+		for i, s in ipairs(hatchlines) do
+			local seg = segs[i]
+			if seg then
+				offsets[s] = { origin + seg[1], origin + seg[2] }
+				R.place(s)
+				s.Color = color
+				alpha[s] = stripe_alpha
+				hidden[s] = nil
+				s.Visible = show and R.shown(s) or false
+				if s.Visible then s.Transparency = stripe_alpha end
+			else
+				hidden[s] = true
+				s.Visible = false
+			end
+		end
+		mainhatchpool = pool
+		return
+	end
+
+	-- same geometry: color / visibility only (no new Drawings, no relayout)
 	for i, s in ipairs(hatchlines) do
-		local seg = segs[i]
-		if seg then
-			offsets[s] = { seg[1], seg[2] }
-			R.place(s)
+		if segs[i] then
 			s.Color = color
 			alpha[s] = stripe_alpha
 			hidden[s] = nil
-			s.Visible = library.open and R.shown(s) or false
+			s.Visible = show and (not clipped[s]) and true or false
 			if s.Visible then s.Transparency = stripe_alpha end
 		else
 			hidden[s] = true
@@ -3761,26 +3839,58 @@ local ovpanels = {}
 function R.placeovhatch(frame, pos, w, h, headh)
 	frame.hatch = frame.hatch or {}
 	headh = headh or 0
-	local px, py = pos.X + OV_INSET, pos.Y + OV_INSET + headh
-	local pw, ph = max(w - OV_INSET * 2, 0), max(h - OV_INSET * 2 - headh, 0)
-	-- above content fill so patterns stay visible/updatable
+	local px, py = floor(pos.X + OV_INSET), floor(pos.Y + OV_INSET + headh)
+	local pw, ph = max(floor(w - OV_INSET * 2), 0), max(floor(h - OV_INSET * 2 - headh), 0)
 	local z = (frame[6] and frame[6].ZIndex or 306) + 1
-	local segs = R.patternenabled("overlays") and R.patternsegs(pattern_style, px, py, pw, ph) or {}
+	local enabled = R.patternenabled("overlays")
+	local pool = string.format("%s:%d:%d", pattern_style, pw, ph)
+	local poskey = string.format("%d:%d", px, py)
 	local color = R.patterncolor(ovstripe)
-	while #frame.hatch < #segs do
-		table.insert(frame.hatch, R.overlay("Line", { Color = color, Thickness = 1, ZIndex = z }))
-	end
-	local live = frame[6] and frame[6].Visible
+	local live = enabled and frame[6] and frame[6].Visible
 	local a = live and ovstripe_alpha or 0
+
+	if not enabled then
+		for _, s in ipairs(frame.hatch) do
+			s.Visible = false
+		end
+		return
+	end
+
+	local segs = frame._hatchsegs
+	if frame._hatchpool ~= pool then
+		segs = R.patternsegs_cached(pattern_style, pw, ph)
+		while #frame.hatch < #segs do
+			table.insert(frame.hatch, R.overlay("Line", { Color = color, Thickness = 1, ZIndex = z }))
+		end
+		frame._hatchpool = pool
+		frame._hatchsegs = segs
+		frame._hatchpos = nil
+	else
+		segs = segs or R.patternsegs_cached(pattern_style, pw, ph)
+		frame._hatchsegs = segs
+	end
+
+	-- reposition only when the overlay moved or pool was rebuilt
+	if frame._hatchpos ~= poskey then
+		local origin = v2(px, py)
+		for i, s in ipairs(frame.hatch) do
+			local seg = segs[i]
+			s.ZIndex = z
+			if seg then
+				s.From, s.To = origin + seg[1], origin + seg[2]
+			end
+		end
+		frame._hatchpos = poskey
+	end
+
+	-- color / visibility always cheap; never allocates
 	for i, s in ipairs(frame.hatch) do
 		local seg = segs[i]
-		s.ZIndex = z
-		if seg then
-			s.From, s.To = seg[1], seg[2]
+		if seg and live then
 			s.Color = color
 			alpha[s] = ovstripe_alpha
 			s.Transparency = a
-			s.Visible = live and true or false
+			s.Visible = true
 		else
 			s.Visible = false
 		end
@@ -5645,14 +5755,16 @@ function library.configtab(name)
 		for _, name in ipairs(list or {}) do
 			pattern_targets[name] = true
 		end
+		-- keep Drawing pools; only show/hide for the selected surfaces
 		if R.applypatterns then R.applypatterns() end
 	end
 
 	local patternbg = extras.toggle({
 		name = "pattern background",
-		default = true,
+		default = false,
 		callback = function(v)
 			pattern_on = v == true
+			-- keep cached segs + Drawing pools; toggling must not realloc tens of thousands of lines
 			if R.applypatterns then R.applypatterns() end
 		end,
 	})
@@ -5671,6 +5783,8 @@ function library.configtab(name)
 		parent = patternbg,
 		callback = function(v)
 			pattern_style = v or "diagonal"
+			-- style change is a real geometry change — invalidate pools once, then rebuild
+			if R.invalidatepatternpools then R.invalidatepatternpools() end
 			if R.applypatterns then R.applypatterns() end
 		end,
 	})
@@ -5724,7 +5838,11 @@ function R.startdrag(offset)
 		local nxt = cur:Lerp(target, dragalpha(dt))
 		if (nxt - cur).Magnitude > 0.05 then
 			library.position = nxt
-			for _, s in ipairs(objects) do R.place(s) end
+			for _, s in ipairs(objects) do
+				if not hidden[s] and not clipped[s] then
+					R.place(s)
+				end
+			end
 		end
 	end)
 end
@@ -5745,7 +5863,9 @@ end
 function library.move(pos)
 	library.position = R.clamped(pos)
 	for _, s in ipairs(objects) do
-		R.place(s)
+		if not hidden[s] and not clipped[s] then
+			R.place(s)
+		end
 	end
 end
 
