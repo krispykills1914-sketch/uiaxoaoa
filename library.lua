@@ -1,0 +1,5816 @@
+local env = getgenv()
+if env.library and env.library.unload then
+	env.library.unload()
+end
+
+local cloneref = cloneref or function(x) return x end
+local uis = cloneref(game:GetService("UserInputService"))
+local run = cloneref(game:GetService("RunService"))
+local http = cloneref(game:GetService("HttpService"))
+local guiservice = cloneref(game:GetService("GuiService"))
+local cas = cloneref(game:GetService("ContextActionService"))
+local locale = cloneref(game:GetService("LocalizationService"))
+local market = cloneref(game:GetService("MarketplaceService"))
+local players = cloneref(game:GetService("Players"))
+local camera = cloneref(cloneref(game:GetService("Workspace")).CurrentCamera)
+
+local gamename = tostring(game.PlaceId)
+task.spawn(function()
+	pcall(function()
+		gamename = market:GetProductInfo(game.PlaceId).Name
+	end)
+end)
+
+local v2, rgb, hsv = Vector2.new, Color3.fromRGB, Color3.fromHSV
+local floor, max, min, clock = math.floor, math.max, math.min, os.clock
+local ceil = math.ceil or function(n)
+	n = n or 0
+	local f = floor(n)
+	return (n > f) and (f + 1) or f
+end
+local clamp = math.clamp or function(n, a, b)
+	return max(a, min(b, n))
+end
+local keys, inputs = Enum.KeyCode, Enum.UserInputType
+local mouse1, mouse2, mousemove, wheel, keyboard = inputs.MouseButton1, inputs.MouseButton2, inputs.MouseMovement, inputs.MouseWheel, inputs.Keyboard
+local togglekey = keys.RightShift
+local keyrepeat = { code = nil, next = 0 }
+local KEY_REPEAT_DELAY, KEY_REPEAT_RATE = 0.4, 0.035
+
+local fonts = {}
+local interfonts = {}
+local font
+local fontname = "Inter"
+local fontcache = {}
+local loadfontdata, registerfontface
+local fontcatalog = {
+	{ name = "Inter", file = "Inter-SemiBold.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/inter@5.2.5/latin-600-normal.ttf" },
+	{ name = "Roboto", file = "Roboto-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/roboto@5.2.5/latin-400-normal.ttf" },
+	{ name = "Open Sans", file = "OpenSans-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/open-sans@5.2.5/latin-400-normal.ttf" },
+	{ name = "Poppins", file = "Poppins-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/poppins@5.2.5/latin-400-normal.ttf" },
+	{ name = "Montserrat", file = "Montserrat-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/montserrat@5.2.5/latin-400-normal.ttf" },
+	{ name = "Lato", file = "Lato-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/lato@5.2.5/latin-400-normal.ttf" },
+	{ name = "Nunito", file = "Nunito-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/nunito@5.2.5/latin-400-normal.ttf" },
+	{ name = "Rubik", file = "Rubik-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/rubik@5.2.5/latin-400-normal.ttf" },
+	{ name = "Work Sans", file = "WorkSans-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/work-sans@5.2.5/latin-400-normal.ttf" },
+	{ name = "DM Sans", file = "DMSans-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/dm-sans@5.2.5/latin-400-normal.ttf" },
+	{ name = "Manrope", file = "Manrope-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/manrope@5.2.5/latin-400-normal.ttf" },
+	{ name = "Mulish", file = "Mulish-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/mulish@5.2.5/latin-400-normal.ttf" },
+	{ name = "Noto Sans", file = "NotoSans-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/noto-sans@5.2.5/latin-400-normal.ttf" },
+	{ name = "IBM Plex Sans", file = "IBMPlexSans-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/ibm-plex-sans@5.2.5/latin-400-normal.ttf" },
+}
+do
+	local fontdir = "deprecate/fonts"
+	local interfaces = {
+		{ key = "regular", file = "Inter-Regular.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/inter@5.2.5/latin-400-normal.ttf" },
+		{ key = "medium", file = "Inter-Medium.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/inter@5.2.5/latin-500-normal.ttf" },
+		{ key = "semibold", file = "Inter-SemiBold.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/inter@5.2.5/latin-600-normal.ttf" },
+		{ key = "bold", file = "Inter-Bold.ttf", url = "https://cdn.jsdelivr.net/fontsource/fonts/inter@5.2.5/latin-700-normal.ttf" },
+	}
+	local px = 16
+
+	local function ensurefolder()
+		if not makefolder then return end
+		if not isfolder("deprecate") then makefolder("deprecate") end
+		if not isfolder(fontdir) then makefolder(fontdir) end
+	end
+
+	local function fontdata(file, url)
+		local path = fontdir .. "/" .. file
+		if isfile and isfile(path) then return readfile(path) end
+		local data = game:HttpGet(url)
+		if writefile then
+			ensurefolder()
+			writefile(path, data)
+		end
+		return data
+	end
+
+	local function registerface(name, data)
+		local loaders = {
+			function()
+				return DrawFont.Register(data, { PixelSize = px })
+			end,
+			function()
+				local register = registerfont or Drawing.RegisterFont
+				local loaded = isfontregistered or Drawing.IsFontRegistered
+				local id = register(name, { size = px }, data)
+				local start = clock()
+				while id and loaded and not select(2, loaded(id)) and clock() - start < 3 do
+					task.wait()
+				end
+				return id
+			end,
+			function()
+				local custom = Drawing.new("Font", name)
+				custom.Data = data
+				pcall(function() custom.PixelSize = px end)
+				pcall(function() custom.Size = px end)
+				return custom
+			end,
+		}
+		for _, loader in ipairs(loaders) do
+			local ok, custom = pcall(loader)
+			if ok and custom then
+				local probe = Drawing.new("Text")
+				local works = pcall(function()
+					probe.Font = custom
+					probe.Text = "Ag"
+					probe.Size = px
+				end)
+				probe:Remove()
+				if works then return custom end
+			end
+		end
+	end
+
+	loadfontdata, registerfontface = fontdata, registerface
+
+	for _, face in ipairs(interfaces) do
+		local ok, data = pcall(fontdata, face.file, face.url)
+		if ok and data and #data > 64 then
+			fonts[face.key] = registerface("deprecate-" .. face.key, data)
+		end
+	end
+
+	font = fonts.semibold or fonts.medium or fonts.regular or fonts.bold
+	if not font then
+		error("deprecate.pro: failed to load Inter — this executor needs a custom Drawing font API")
+	end
+
+	for _, face in ipairs(interfaces) do
+		fonts[face.key] = fonts[face.key] or font
+		interfonts[face.key] = fonts[face.key]
+	end
+	fontcache.Inter = font
+end
+
+local width, height = 640, 520
+local pad, barh = 10, 34
+local fs = 15
+local header = fs + 9
+local fieldh = fs + 7
+local elgap = 3
+local top = 8 + barh + 1 + pad
+local colw = floor((width - 16 - pad * 3) / 2)
+local colh = height - 8 - pad - top
+local popupz = 50
+local speed = 0.15
+local configfolder = "deprecate/test"
+local themefolder = "deprecate/themes"
+
+local accent = rgb(121, 144, 255)
+local bright, mid, dim = rgb(220, 220, 220), rgb(170, 170, 170), rgb(120, 120, 120)
+local unsafe = rgb(255, 72, 72)
+local black, edge = rgb(10, 10, 10), rgb(45, 45, 45)
+local outline = rgb(60, 60, 60)
+local field, fieldhover = rgb(32, 32, 32), rgb(44, 44, 44)
+local panel = rgb(24, 24, 24)
+local contentbg = rgb(30, 30, 30)
+local ovheadbg = rgb(38, 38, 38)
+local ovheadfg = rgb(255, 255, 255)
+local stripe = contentbg
+local ovstripe = contentbg
+local outline_alpha, stripe_alpha, ovstripe_alpha = 1, 1, 1
+local pattern_on = true
+local pattern_style = "diagonal"
+local pattern_targets = { ["main ui"] = true, ["overlays"] = true }
+local tabfill, tabhover, tabon = rgb(18, 18, 18), rgb(26, 26, 26), rgb(30, 30, 30)
+local tabedge = rgb(55, 55, 55)
+local brandplate = rgb(22, 22, 22)
+local notebg = rgb(10, 10, 10)
+local notebg_alpha = 0.5
+local wmbar = rgb(55, 55, 55)
+
+local GRAD_STEPS = 16
+local gfield_t, gfield_b = rgb(44, 44, 44), rgb(28, 28, 28)
+local ghover_t, ghover_b = rgb(56, 56, 56), rgb(34, 34, 34)
+local gaccent_t, gaccent_b = rgb(152, 170, 255), rgb(96, 120, 235)
+
+local winlayers, hatchlines = {}, {}
+local themesnap
+
+local objects, offsets, owners, hidden, clipped, alpha, tweens = {}, {}, {}, {}, {}, {}, {}
+local connections, tabs, hitboxes, toggles, sliders, flags, overlays = {}, {}, {}, {}, {}, {}, {}
+local view = camera.ViewportSize
+local dragging, dragloop, target, animloop, hovered, popup, floating, capture, sliding
+local themepickers = {}
+
+local library = { open = true, position = v2(), flags = flags, fonts = fonts }
+
+local R = {}
+
+function R.noop() end
+
+function R.derivegrads()
+	gaccent_t = accent:Lerp(rgb(255, 255, 255), 0.28)
+	gaccent_b = accent:Lerp(rgb(0, 0, 0), 0.22)
+	gfield_t = field:Lerp(rgb(255, 255, 255), 0.18)
+	gfield_b = field:Lerp(rgb(0, 0, 0), 0.18)
+	ghover_t = fieldhover:Lerp(rgb(255, 255, 255), 0.14)
+	ghover_b = fieldhover:Lerp(rgb(0, 0, 0), 0.14)
+end
+
+function R.gettheme()
+	return {
+		accent = accent,
+		bright = bright,
+		mid = mid,
+		dim = dim,
+		unsafe = unsafe,
+		black = black,
+		edge = edge,
+		outline = outline,
+		outline_alpha = outline_alpha,
+		field = field,
+		fieldhover = fieldhover,
+		panel = panel,
+		contentbg = contentbg,
+		ovheadbg = ovheadbg,
+		ovheadfg = ovheadfg,
+		stripe = stripe,
+		stripe_alpha = stripe_alpha,
+		ovstripe = ovstripe,
+		ovstripe_alpha = ovstripe_alpha,
+		tabfill = tabfill,
+		tabhover = tabhover,
+		tabedge = tabedge,
+		brandplate = brandplate,
+		notebg = notebg,
+		notebg_alpha = notebg_alpha,
+		wmbar = wmbar,
+		gfield_t = gfield_t,
+		gfield_b = gfield_b,
+		ghover_t = ghover_t,
+		ghover_b = ghover_b,
+		gaccent_t = gaccent_t,
+		gaccent_b = gaccent_b,
+	}
+end
+
+function R.themecolor(role)
+	if role == "accent" then return accent end
+	if role == "mid" then return mid end
+	if role == "dim" then return dim end
+	if role == "unsafe" then return unsafe end
+	if typeof(role) == "Color3" then return role end
+	return bright
+end
+
+function R.colormatch(a, b)
+	return typeof(a) == "Color3" and typeof(b) == "Color3"
+		and math.abs(a.R - b.R) < 0.004
+		and math.abs(a.G - b.G) < 0.004
+		and math.abs(a.B - b.B) < 0.004
+end
+
+function R.remaptheme()
+end
+
+function R.fontnames()
+	local names = {}
+	for _, entry in ipairs(fontcatalog) do
+		table.insert(names, entry.name)
+	end
+	return names
+end
+
+function R.loadfont(name)
+	if fontcache[name] then return fontcache[name] end
+	local entry
+	for _, item in ipairs(fontcatalog) do
+		if item.name == name then entry = item break end
+	end
+	if not entry then return fontcache.Inter or font end
+	local ok, data = pcall(loadfontdata, entry.file, entry.url)
+	if not ok or not data or #data < 64 then return fontcache.Inter or font end
+	local face = registerfontface("deprecate-ui-" .. entry.name:gsub("%s+", ""), data)
+	if face then
+		fontcache[name] = face
+		return face
+	end
+	return fontcache.Inter or font
+end
+
+function R.applyfont(face)
+	if not face then return end
+	font = face
+	for _, list in ipairs({ objects, overlays }) do
+		for _, s in ipairs(list) do
+			pcall(function()
+				if R.hastext(s) then
+					s.Font = face
+				end
+			end)
+		end
+	end
+	if R.layouttabs then R.layouttabs() end
+	if R.paintwatermark then pcall(R.paintwatermark, lastfps or 0) end
+	if R.painthotkeys then pcall(R.painthotkeys) end
+	if R.paintplayerlist then pcall(R.paintplayerlist) end
+	if R.painthud then pcall(R.painthud, 0) end
+end
+
+function library.setfont(name)
+	name = tostring(name or "Inter")
+	fontname = name
+	if name == "Inter" then
+		fonts.regular = interfonts.regular or fonts.regular
+		fonts.medium = interfonts.medium or fonts.medium
+		fonts.semibold = interfonts.semibold or fonts.semibold
+		fonts.bold = interfonts.bold or fonts.bold
+		font = fonts.semibold or fonts.medium or fonts.regular
+		fontcache.Inter = font
+		R.applyfont(font)
+		return
+	end
+	local face = R.loadfont(name)
+	fonts.regular, fonts.medium, fonts.semibold, fonts.bold = face, face, face, face
+	R.applyfont(face or font)
+end
+
+function R.setthemelocals(data)
+	data = data or {}
+	local function take(key, cur)
+		local v = data[key]
+		if typeof(v) == "Color3" then return v end
+		if type(v) == "string" then
+			local ok, c = pcall(Color3.fromHex, v)
+			if ok and c then return c end
+		end
+		return cur
+	end
+	local hadAccent, hadField, hadHover = data.accent ~= nil, data.field ~= nil, data.fieldhover ~= nil
+	accent = take("accent", accent)
+	bright = take("bright", bright)
+	mid = take("mid", mid)
+	dim = take("dim", dim)
+	unsafe = take("unsafe", unsafe)
+	black = take("black", black)
+	edge = take("edge", edge)
+	outline = take("outline", outline)
+	field = take("field", field)
+	fieldhover = take("fieldhover", fieldhover)
+	panel = take("panel", panel)
+	contentbg = take("contentbg", contentbg)
+	ovheadbg = take("ovheadbg", ovheadbg)
+	ovheadfg = take("ovheadfg", ovheadfg)
+	stripe = take("stripe", stripe)
+	ovstripe = take("ovstripe", ovstripe)
+	-- ui background drives main fill; keep contentbg in sync (and accept old themes)
+	if data.stripe ~= nil then
+		contentbg = stripe
+	elseif data.contentbg ~= nil then
+		stripe = contentbg
+	end
+	tabfill = take("tabfill", tabfill)
+	tabhover = take("tabhover", tabhover)
+	tabedge = take("tabedge", tabedge)
+	brandplate = take("brandplate", brandplate)
+	notebg = take("notebg", notebg)
+	local function takealpha(key, cur)
+		if type(data[key]) == "number" then return clamp(data[key], 0, 1) end
+		return cur
+	end
+	outline_alpha = takealpha("outline_alpha", outline_alpha)
+	stripe_alpha = takealpha("stripe_alpha", stripe_alpha)
+	ovstripe_alpha = takealpha("ovstripe_alpha", ovstripe_alpha)
+	notebg_alpha = takealpha("notebg_alpha", notebg_alpha)
+	wmbar = take("separators", take("wmbar", wmbar))
+	gfield_t = take("gfield_t", gfield_t)
+	gfield_b = take("gfield_b", gfield_b)
+	ghover_t = take("ghover_t", ghover_t)
+	ghover_b = take("ghover_b", ghover_b)
+	gaccent_t = take("gaccent_t", gaccent_t)
+	gaccent_b = take("gaccent_b", gaccent_b)
+
+	if hadAccent and data.gaccent_t == nil and data.gaccent_b == nil then
+		gaccent_t = accent:Lerp(rgb(255, 255, 255), 0.28)
+		gaccent_b = accent:Lerp(rgb(0, 0, 0), 0.22)
+	end
+	if hadField and data.gfield_t == nil and data.gfield_b == nil then
+		gfield_t = field:Lerp(rgb(255, 255, 255), 0.18)
+		gfield_b = field:Lerp(rgb(0, 0, 0), 0.18)
+	end
+	if hadHover and data.ghover_t == nil and data.ghover_b == nil then
+		ghover_t = fieldhover:Lerp(rgb(255, 255, 255), 0.14)
+		ghover_b = fieldhover:Lerp(rgb(0, 0, 0), 0.14)
+	end
+end
+
+local sinkinputs = { keyboard, mouse1, mouse2, inputs.MouseButton3, wheel, mousemove, inputs.Touch }
+local mouseicon, mousebehavior, cursorloop
+
+local blocker = Instance.new("ScreenGui")
+blocker.Name, blocker.IgnoreGuiInset, blocker.ResetOnSpawn, blocker.DisplayOrder, blocker.Enabled = "deprecate", true, false, 100000, false
+local modal = Instance.new("TextButton")
+modal.Text, modal.AutoButtonColor, modal.BackgroundTransparency, modal.Size = "", false, 1, UDim2.fromScale(1, 1)
+modal.Modal, modal.Active = false, false
+modal.Parent = blocker
+if not pcall(function() blocker.Parent = gethui and gethui() or cloneref(game:GetService("CoreGui")) end) then
+	blocker.Parent = cloneref(game:GetService("Players")).LocalPlayer:WaitForChild("PlayerGui")
+end
+
+function R.block(state)
+	if cursorloop then
+		cursorloop:Disconnect()
+		cursorloop = nil
+	end
+	-- advertise menu state so cheats stop injecting mouse/key while UI is open
+	pcall(function()
+		getgenv().VantageMenuOpen = state and true or false
+	end)
+	blocker.Enabled = state
+	modal.Modal, modal.Active = state, state
+	if state then
+		-- drop any held virtual clicks so the game doesn't keep firing
+		pcall(function()
+			if mouse1release then
+				mouse1release()
+			end
+		end)
+		pcall(function()
+			if mouse2release then
+				mouse2release()
+			end
+		end)
+		pcall(function()
+			local vim = game:GetService("VirtualInputManager")
+			local pos = uis:GetMouseLocation()
+			vim:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 1)
+			vim:SendMouseButtonEvent(pos.X, pos.Y, 1, false, game, 1)
+		end)
+		mouseicon = uis.MouseIconEnabled
+		mousebehavior = uis.MouseBehavior
+		uis.MouseIconEnabled = true
+		uis.MouseBehavior = Enum.MouseBehavior.Default
+
+		cursorloop = run.RenderStepped:Connect(function()
+			uis.MouseIconEnabled = true
+			uis.MouseBehavior = Enum.MouseBehavior.Default
+		end)
+		cas:BindActionAtPriority("deprecate.sink", function()
+			return Enum.ContextActionResult.Sink
+		end, false, 100000, table.unpack(sinkinputs))
+	else
+		pcall(function()
+			cas:UnbindAction("deprecate.sink")
+		end)
+		if mouseicon ~= nil then
+			pcall(function()
+				uis.MouseIconEnabled = mouseicon
+			end)
+		end
+		if mousebehavior and mousebehavior ~= Enum.MouseBehavior.Default then
+			pcall(function()
+				uis.MouseBehavior = mousebehavior
+			end)
+		end
+		mouseicon, mousebehavior = nil, nil
+	end
+end
+
+function R.lerp(a, b, t)
+	if type(a) == "number" then return a + (b - a) * t end
+	return a:Lerp(b, t)
+end
+
+function R.step()
+	local now = clock()
+	for s, list in pairs(tweens) do
+		for prop, tw in pairs(list) do
+			local t = min((now - tw.start) / tw.duration, 1)
+			s[prop] = R.lerp(tw.from, tw.to, 1 - (1 - t) ^ 3)
+			if t == 1 then list[prop] = nil end
+		end
+		if next(list) == nil then tweens[s] = nil end
+	end
+	if next(tweens) == nil then
+		animloop:Disconnect()
+		animloop = nil
+	end
+end
+
+function R.tween(s, prop, to, duration)
+	tweens[s] = tweens[s] or {}
+	tweens[s][prop] = { from = s[prop], to = to, start = clock(), duration = duration or speed }
+	animloop = animloop or run.RenderStepped:Connect(R.step)
+end
+
+function R.snaptween(s, prop, to)
+	if tweens[s] then tweens[s][prop] = nil end
+	if to ~= nil then s[prop] = to end
+end
+
+function R.cleartweens()
+	for s, list in pairs(tweens) do
+		for prop, tw in pairs(list) do
+			if tw.to ~= nil then
+				pcall(function() s[prop] = tw.to end)
+			end
+		end
+	end
+	table.clear(tweens)
+end
+
+local themed = {}
+function R.ontheme(fn)
+	table.insert(themed, fn)
+	return fn
+end
+
+function R.firetheme()
+	for _, fn in ipairs(themed) do
+		pcall(fn)
+	end
+end
+
+function R.animated(value, apply)
+	return setmetatable({}, {
+		__index = function() return value end,
+		__newindex = function(_, _, v)
+			value = v
+			apply(v)
+		end,
+	})
+end
+
+-- BuilderIcons chevron-small-* (https://voxlenox.github.io/RobloxBuilderIconList/)
+-- Drawing.Text can't render BuilderIcons glyphs (shows "?"), so raster PNGs are used.
+local iconpng = {
+	down = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAwUlEQVR42u3WsQ6CMABFUSB+u05G46ICBb/Mn6j7c6kRm5paWGy5Z2Fqk3cTklYVAAAAAAAAAACLSNpKspJOkuqZd9SSDu6eXW4BrN5MagQ3vpvcYXMLsNenQVKTML73zh9zC1BLOqdGcOeMd66d+xv9Q4SLN2b8FkFSExjfZTk+NYIbPxQ1PhLh9orgxo9FjvciXAMRNu471Rc1PhLhvorxXoRWYabo8ZEI6xgfeOY+ljyXAQAAAAAAAAAAAAD4zRN4vNnOBDUYUwAAAABJRU5ErkJggg==",
+	up = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAr0lEQVR42u3Xuw6CMABGYRqfnkQik5GLT+Zj4H5cOmCTqpA40J5vcaAS/oOLTSNJkiRJkiRJfwYE4AwswAUItY2/8m6oIkJmfB0RMuMfVUTIjL8Dp/hZboQP48Pq+lxkhMz4OR0Xz01FRfh1fHJ+LCJCZvz0bUwxEYBu6/gkwpB8vz9agOfq4cetbzBGuK3usRwtQBsj9Ht/vjFCF+/T+gdCkiRJkiRJkiRJkiTt9QLc39lrH+5PQQAAAABJRU5ErkJggg==",
+	right = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABCklEQVR42u3YPSvGUQCG8b+3kKJH0pN8JBNlMVgMFmaLsjA8A2V4PoLBYlAMBqsiKSWRD2CUzdtloBxnZ7mv3ze4r06d02kaSZIkSZIk6c8ALWAOGE8NcMGXB2A6McAjP+6AqbQAM8BLEeEWaKdFmAVeiwg3wGRahHngrYhwDUykRVgA3osIV3G3A7BYRbgEWmkRloCPIsI5MJYWYZnfzoDRtAgrVYSjtAAjwH0R4Clp/DBwWp2A1ZTxQ8BJNX4tZfwgcFyNX08ZPwAcVuM3Usb3AwfV+M2U8X3AfjW+kzK+F9irxm8nXXfdavxu2mPnuRjfbZq8L7Gt7wg7QE8jSZIkSZIkSZL0jz4B6vi3ZhbHWrMAAAAASUVORK5CYII=",
+	left = "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABC0lEQVR42u3Yq0qFQQBF4QFvKF7wgogvZRCDxWAxnGKxGAyGE0QwmHwEg0HQIlgMYjgIgogYfACbaPOyDAbH6Vr2+t5gbX7+GaYUSZIkSZIk6d8Bk8AiMJUYPw888K2XFj8H3PPjKSl+Frir4t+AhZT4GeC2in8HllLip4GbKv4DWE7621838Ssp8RNAr4r/BFZT4seBqyZ+LSV+DLjkt07ScXfSxK+nXXaeq/hHYDRtgE7zBVwAI2kjbDQjnAPDaSNsNiOcAUNpI2w1I5wCg2kjbDcjHAMDaSN0mxGOgP60EXaaEQ6BvrQR9poRDkrJexLbrwZ4KSXzUXQXeAW6RZIkSZIkSZIk6Y98ATdrtGIKWLKGAAAAAElFTkSuQmCC",
+}
+local iconbytes = {}
+
+function R.decodeb64(s)
+	if type(s) ~= "string" or s == "" then return nil end
+	local decoders = {
+		function() return crypt.base64decode(s) end,
+		function() return crypt.base64_decode(s) end,
+		function() return base64_decode(s) end,
+		function() return base64.decode(s) end,
+	}
+	for _, fn in ipairs(decoders) do
+		local ok, data = pcall(fn)
+		if ok and type(data) == "string" and #data > 8 then return data end
+	end
+end
+
+function R.iconbytes(name)
+	if iconbytes[name] then return iconbytes[name] end
+	local data = R.decodeb64(iconpng[name])
+	if data then iconbytes[name] = data end
+	return data
+end
+
+function R.seticon(s, name, px)
+	if not s then return s end
+	px = px or fs
+	local data = R.iconbytes(name)
+	if data then pcall(function() s.Data = data end) end
+	pcall(function() s.Size = v2(px, px) end)
+	s._icon = name
+	return s
+end
+
+function R.icon(name, color, z, owner, px)
+	px = px or fs
+	local s = Drawing.new("Image")
+	pcall(function() s.Color = color or dim end)
+	pcall(function() s.ZIndex = z or 13 end)
+	s.Visible = false
+	R.seticon(s, name or "down", px)
+	table.insert(objects, s)
+	offsets[s], owners[s] = v2(), owner
+	s.Visible = R.shown(s)
+	return s
+end
+
+function R.visible(owner)
+	if owner == nil then return true end
+	if owner.visible then return owner.visible() and true or false end
+	return owner == library.active
+end
+
+function R.shown(s)
+	return library.open and not hidden[s] and not clipped[s] and R.visible(owners[s]) and true or false
+end
+
+function R.refresh(list)
+	for _, s in ipairs(list or objects) do
+		pcall(function()
+			if R.shown(s) then
+				local base, tw = alpha[s] or 1, tweens[s]
+				if not s.Visible then
+					s.Transparency, s.Visible = 0, true
+				end
+				if (tw and tw.Transparency) or math.abs((s.Transparency or 0) - base) > 0.001 then
+					R.tween(s, "Transparency", base)
+				end
+			else
+				s.Visible = false
+			end
+		end)
+	end
+end
+
+function R.fadeout(list, done)
+	for _, s in ipairs(list) do
+		if s.Visible then R.tween(s, "Transparency", 0) end
+	end
+	if done then task.delay(speed, done) end
+end
+
+function R.place(s)
+	local o, p = offsets[s], library.position
+	if type(o) == "table" then
+		s.From, s.To = p + o[1], p + o[2]
+	else
+		s.Position = p + o
+	end
+end
+
+function R.set(s, x, y, w, h)
+	offsets[s] = v2(x, y)
+	if w then s.Size = v2(w, h) end
+	R.place(s)
+end
+
+function R.add(kind, props, owner)
+	local s = Drawing.new(kind)
+	for k, v in pairs(props) do s[k] = v end
+	table.insert(objects, s)
+	offsets[s], owners[s] = kind == "Line" and { v2(), v2() } or v2(), owner
+	s.Visible = R.shown(s)
+	return s
+end
+
+function R.square(color, z, owner)
+	return R.add("Square", { Filled = true, Color = color, ZIndex = z }, owner)
+end
+
+function R.text(str, color, z, owner, size, face)
+	return R.add("Text", { Text = str, Size = size or fs, Font = face or font, Color = color, Outline = true, ZIndex = z }, owner)
+end
+
+function R.hastext(s)
+	if not s then return false end
+	local ok, value = pcall(function() return s.Text end)
+	return ok and type(value) == "string"
+end
+
+function R.textwidth(s)
+	if not s then return 0 end
+	local ok, str = pcall(function() return s.Text end)
+	if not ok or type(str) ~= "string" then return 0 end
+	local size = tonumber(s.Size) or fs
+	local face = s.Font
+	if type(face) == "table" or type(face) == "userdata" then
+		local okb, bounds = pcall(function()
+			if face.GetTextBounds then return face.GetTextBounds(face, size, str) end
+			if face.getTextBounds then return face.getTextBounds(face, size, str) end
+		end)
+		if not okb or not bounds then
+			okb, bounds = pcall(function()
+				if face.GetTextBounds then return face:GetTextBounds(size, str) end
+			end)
+		end
+		if okb and bounds then
+			local w = type(bounds) == "number" and bounds or bounds.X
+			if type(w) == "number" and w > 0 then return w end
+		end
+	end
+	local okb, bounds = pcall(function() return s.TextBounds end)
+	if okb and bounds then
+		local w = bounds.X
+		if type(w) == "number" and w > 0 then return w end
+	end
+	return #str * max(1, floor(size * 7 / 13 + 0.5))
+end
+
+function R.fit(s, str, maxw, keeptail)
+	s.Text = str
+	while #str > 0 and R.textwidth(s) > maxw do
+		str = keeptail and str:sub(2) or str:sub(1, -2)
+		s.Text = str
+	end
+end
+
+function R.ellipsis(s, str, maxw)
+	str = tostring(str or "")
+	s.Text = str
+	if R.textwidth(s) <= maxw then return end
+	while #str > 0 do
+		str = str:sub(1, -2)
+		s.Text = str .. "..."
+		if R.textwidth(s) <= maxw then return end
+	end
+	s.Text = "..."
+end
+
+function R.fire(fn, ...)
+	if not fn then return end
+	local ok, err = pcall(fn, ...)
+	if not ok then warn("deprecate.pro:", err) end
+end
+
+function R.connect(signal, fn)
+	table.insert(connections, signal:Connect(fn))
+end
+
+function R.hitbox(box, hb)
+	hb.box = box
+	hb.element = hb.element or box and box.current
+	table.insert(hitboxes, hb)
+	return hb
+end
+
+function R.inside(p, x, y, w, h)
+	return p.X >= x and p.Y >= y and p.X < x + w and p.Y < y + h
+end
+
+function R.find(rel)
+	local best, score
+	for _, hb in ipairs(hitboxes) do
+		local box = hb.box
+		local bx, by = 0, 0
+		if box then bx, by = box.x, box.y - (hb.fixed and 0 or floor(box.offset)) end
+		local live = R.visible(box and box.owner) and not (hb.element and (hb.element.clipped or hb.element.folded)) and (not hb.when or hb.when())
+		if live and R.inside(rel, bx + hb.x, by + hb.y, hb.w, hb.h) then
+			local s = (box and box.z or 0) + (hb.top and 50 or 0) + (hb.priority or 0) + (hb.fixed and 20 or 0)
+			if not best or s > score then best, score = hb, s end
+		end
+	end
+	return best
+end
+
+function R.sethover(hb)
+	if hb == hovered then return end
+	if hovered then hovered.hover(false) end
+	hovered = hb
+	if hb then hb.hover(true) end
+end
+
+local contenty, brandaccent, brand, brandbg, tabminx, topdiv_l, topdiv_r
+
+do
+	local function setup_window_chrome()
+
+	local layers = {
+		{ 0, black },
+		{ 1, outline },
+		{ 2, outline:Lerp(black, 0.35) },
+		{ 6, outline },
+		{ 7, black },
+		{ 8, contentbg },
+	}
+	table.clear(winlayers)
+	for i, layer in ipairs(layers) do
+		local d = layer[1]
+		local s = R.square(layer[2], i)
+		winlayers[i] = s
+		R.set(s, d, d, width - d * 2, height - d * 2)
+	end
+
+	table.clear(hatchlines)
+
+	contenty = 8 + barh
+	brandbg = R.square(brandplate, 9)
+	R.set(brandbg, 8, 8, 160, barh)
+	topdiv_l, topdiv_r = R.square(black, 8), R.square(black, 8)
+	R.set(topdiv_l, 8, contenty, width - 16, 1)
+	R.set(topdiv_r, 8, contenty, 0, 1)
+
+	local titley = 8 + floor((barh - 20) / 2)
+	brandaccent = R.text("deprecate.pro", accent, 10, nil, 20, fonts.semibold)
+	brand = R.text("deprecate", bright, 11, nil, 20, fonts.semibold)
+	R.set(brandaccent, 18, titley)
+	R.set(brand, 18, titley)
+
+	tabminx = 160
+	end
+	setup_window_chrome()
+end
+
+do
+	local function setup_elements()
+
+function R.newbox(owner, title, w, z)
+	local names = type(title) == "table" and title or nil
+	local titlestr = type(title) == "string" and title or nil
+	if names then assert(#names >= 1 and #names <= 4, "a groupbox can have 1 to 4 subtabs") end
+
+	local box = { title = titlestr or (names and names[1]), w = w, z = z, x = 0, y = 0, h = 0, offset = 0, first = 1 }
+	box.items, box.relative, box.elements = {}, {}, {}
+	box.cursor = (titlestr or names) and header + 6 or 10
+	if not owner then
+		owner = box
+		box.visible = function() return box.open end
+	end
+	box.owner = owner
+	box.frame = {
+		R.square(black, z + 7, owner),
+		R.square(edge, z + 8, owner),
+		R.square(panel, z + 9, owner),
+	}
+	if titlestr then
+		local label = R.text("", bright, z + 10, owner)
+		label.Center = true
+		R.fit(label, titlestr, w - 12)
+		table.insert(box.frame, R.square(edge, z + 10, owner))
+		table.insert(box.frame, label)
+	elseif names then
+
+		box.div_l = R.square(edge, z + 10, owner)
+		box.div_r = R.square(edge, z + 10, owner)
+		table.insert(box.frame, box.div_l)
+		table.insert(box.frame, box.div_r)
+		box.pages, box.sublabels = {}, {}
+		for _, name in ipairs(names) do
+			local outline = R.square(black, z + 10, owner)
+			local border = R.square(edge, z + 10, owner)
+			local fill = R.square(tabfill, z + 10, owner)
+			local label = R.text("", dim, z + 11, owner)
+			label.Center = true
+			R.fit(label, name, floor((w - 16) / #names))
+			table.insert(box.frame, outline)
+			table.insert(box.frame, border)
+			table.insert(box.frame, fill)
+			table.insert(box.frame, label)
+			table.insert(box.sublabels, label)
+			table.insert(box.pages, {
+				name = name,
+				label = label,
+				outline = outline,
+				border = border,
+				fill = fill,
+				elements = {},
+				cursor = header + 6,
+				first = 1,
+				offset = 0,
+			})
+		end
+		box.page = box.pages[1]
+		box.elements = box.page.elements
+		box.cursor = box.page.cursor
+	end
+	return box
+end
+
+function R.anchor(box, s)
+	local r, ox, oy = box.relative[s], box.x, box.y - floor(box.offset)
+	if type(r) == "table" then
+		offsets[s] = { v2(ox + r[1].X, oy + r[1].Y), v2(ox + r[2].X, oy + r[2].Y) }
+	else
+		offsets[s] = v2(ox + r.X, oy + r.Y)
+	end
+	R.place(s)
+end
+
+function R.paintbar(box)
+	if not box.bar or not box.thumb then return end
+	local bw, bh = box.w or 0, box.h or 0
+	local x, y = (box.x or 0) + bw - 6, (box.y or 0) + header + 4
+	local h = max(bh - header - 8, 1)
+	local span = box.span or 1
+	local maxo = box.maxoffset or 0
+	local thumb = max(floor(h * span), 10)
+	local ratio = maxo > 0 and clamp((box.offset or 0) / maxo, 0, 1) or 0
+	box.bar.Color = edge
+	box.thumb.Color = accent
+	R.set(box.bar, x, y, 2, h)
+	R.set(box.thumb, x, y + floor((h - thumb) * ratio), 2, thumb)
+end
+
+function R.mkscrollarrow(owner)
+	local icon = R.icon("down", accent, 19, owner, fs)
+	return {
+		icon = icon,
+		cx = 0,
+		tip = 0,
+		flip = 1,
+		on = false,
+		size = fs,
+	}
+end
+
+function R.drawchevron(arrow, bounce)
+	local cx = floor((arrow.cx or 0) + 0.5)
+	local flip = arrow.flip == -1 and -1 or 1
+	local tipy = floor((arrow.tip or 0) - (bounce or 0) * flip + 0.5)
+	local size = arrow.size or fs
+	local icon = arrow.icon
+	R.seticon(icon, flip < 0 and "up" or "down", size)
+	pcall(function() icon.Color = accent end)
+	offsets[icon] = v2(cx - floor(size / 2), tipy - floor(size / 2))
+	R.place(icon)
+end
+
+function R.showscrollarrow(arrow, state)
+	arrow.on = state and true or false
+	local icon = arrow.icon
+	pcall(function() icon.Color = accent end)
+	hidden[icon] = (not state) or nil
+	icon.Visible = state and library.open and R.shown(icon) or false
+end
+
+function R.placescrollhints(box)
+	if not box.arrowUp or not box.arrowDn then return end
+	local cx = box.x + floor(box.w / 2)
+	box.arrowUp.cx, box.arrowUp.tip, box.arrowUp.flip = cx, box.y + header + 4, -1
+	box.arrowDn.cx, box.arrowDn.tip, box.arrowDn.flip = cx, box.y + box.h - 4, 1
+	R.drawchevron(box.arrowUp, 0)
+	R.drawchevron(box.arrowDn, 0)
+end
+
+function R.paintscrollhints(box)
+	if not box.arrowUp or not box.arrowDn then return end
+	local live = library.open and R.visible(box.owner) and (box.h or 0) > header + 20
+	local maxo = box.maxoffset or 0
+	local off = box.offset or 0
+	R.showscrollarrow(box.arrowUp, live and maxo > 0 and off > 0.5)
+	R.showscrollarrow(box.arrowDn, live and maxo > 0 and off < maxo - 0.5)
+end
+
+function R.tickscrollhints()
+	local bounce = library.open and floor(math.abs(math.sin(clock() * 3.1)) * 2 + 0.5) or 0
+	for _, tab in ipairs(tabs) do
+		local active = library.open and tab == library.active
+		for _, column in ipairs(tab.columns or {}) do
+			for _, box in ipairs(column) do
+				if not box.arrowUp then
+				elseif active then
+					R.paintscrollhints(box)
+					if box.arrowUp.on then R.drawchevron(box.arrowUp, bounce) end
+					if box.arrowDn.on then R.drawchevron(box.arrowDn, bounce) end
+				else
+					R.showscrollarrow(box.arrowUp, false)
+					R.showscrollarrow(box.arrowDn, false)
+				end
+			end
+		end
+	end
+end
+
+function R.layoutbox(box, x, y, h)
+	local w, f = box.w, box.frame
+	box.x, box.y, box.h = x, y, h
+	R.set(f[1], x, y, w, h)
+	R.set(f[2], x + 1, y + 1, w - 2, h - 2)
+	R.set(f[3], x + 2, y + 2, w - 4, h - 4)
+	if box.pages then
+		local n = #box.pages
+		local by = y + 2
+		local divy = y + header - 1
+
+		local bh = divy - by
+		local left, right = x + 2, x + w - 2
+		local avail = right - left
+		local base = floor(avail / n)
+		local rem = avail - base * n
+		local bx = left
+		local gapx, gapw = left, 0
+		for i, page in ipairs(box.pages) do
+			local tw = base + (i <= rem and 1 or 0)
+			local active = page == box.page
+			local iw = max(tw - 2, 1)
+			R.set(page.outline, bx, by, tw, bh)
+			R.set(page.border, bx + 1, by, iw, bh)
+
+			R.set(page.fill, bx + 1, by, iw, active and (bh + 1) or bh)
+			if active then gapx, gapw = bx + 1, iw end
+			local subfs = page.label.Size or fs
+			R.fit(page.label, page.name, tw - 6)
+			R.set(page.label, bx + floor(tw / 2), by + floor((bh - subfs) / 2))
+			if box.pagehits then
+				box.pagehits[i].x = bx - x
+				box.pagehits[i].y = by - y
+				box.pagehits[i].w, box.pagehits[i].h = tw, bh
+			end
+			bx += tw
+		end
+
+		local gx, gw = gapx, gapw
+		local rx = gx + gw
+		R.set(box.div_l, left, divy, max(gx - left, 0), 1)
+		R.set(box.div_r, rx, divy, max(right - rx, 0), 1)
+		box.div_l.Visible = library.open and R.visible(box.owner) and (gx - left) > 0
+		box.div_r.Visible = library.open and R.visible(box.owner) and (right - rx) > 0
+	elseif f[4] then
+		R.set(f[4], x + 2, y + header - 1, w - 4, 1)
+		if f[5] then
+			R.set(f[5], x + floor(w / 2), y + 4)
+		end
+	end
+	for _, s in ipairs(box.items) do R.anchor(box, s) end
+	R.placescrollhints(box)
+	R.paintscrollhints(box)
+end
+
+function R.cliptooffset(box, offset)
+	local start, bottom = header + 6, box.h - 8
+	offset = floor(offset)
+	for _, el in ipairs(box.elements or {}) do
+		local objs = el.objects or {}
+		if el.folded then
+			if not el.clipped then
+				el.clipped = true
+				for _, s in ipairs(objs) do
+					clipped[s] = true
+					s.Visible = false
+				end
+			end
+		else
+			local cut = el.top - offset < start or el.bottom - offset > bottom
+			if cut ~= el.clipped then
+				el.clipped = cut
+				for _, s in ipairs(objs) do clipped[s] = cut or nil end
+				R.refresh(objs)
+			end
+		end
+	end
+end
+
+function R.clip(box)
+	local els, start, bottom = box.elements, header + 6, box.h - 8
+	local visible = {}
+	for i, el in ipairs(els or {}) do
+		if not el.folded then
+			table.insert(visible, { el = el, index = i })
+		end
+	end
+	if #visible == 0 then
+		box.first = 1
+		box.maxoffset = 0
+		box.span = 1
+		clipped[box.bar], clipped[box.thumb] = true, true
+		R.refresh({ box.bar, box.thumb })
+		R.cliptooffset(box, box.offset or 0)
+		R.paintscrollhints(box)
+		return
+	end
+	local last = visible[#visible].el
+	local maxfirst = max(#visible, 1)
+	for i, item in ipairs(visible) do
+		if last.bottom - (item.el.top - start) <= bottom then
+			maxfirst = i
+			break
+		end
+	end
+
+	local firstvis = 1
+	for i, item in ipairs(visible) do
+		if item.index >= box.first then
+			firstvis = i
+			break
+		end
+		firstvis = i
+	end
+	firstvis = clamp(firstvis, 1, maxfirst)
+	box.first = visible[firstvis] and visible[firstvis].index or 1
+
+	local firstel = visible[firstvis] and visible[firstvis].el
+	local maxel = visible[maxfirst] and visible[maxfirst].el
+	local target = firstel and firstel.top - start or 0
+	box.maxoffset = maxel and maxel.top - start or 0
+	box.span = last and min((bottom - start) / max(last.bottom - start, 1), 1) or 1
+
+	local scrollable = maxfirst > 1 or nil
+	clipped[box.bar], clipped[box.thumb] = not scrollable, not scrollable
+	R.refresh({ box.bar, box.thumb })
+	R.cliptooffset(box, box.offset)
+	R.tween(box.scroller, "offset", target, 0.12)
+	R.paintscrollhints(box)
+end
+
+function R.scroll(box, dir)
+	if popup then popup.close() end
+	local els = box.elements
+	local i = box.first
+	repeat
+		i += dir
+	until not els[i] or not els[i].folded
+	if els[i] then box.first = i end
+	R.clip(box)
+end
+
+function R.track(box, s, z)
+	table.insert(box.items, s)
+	if z < popupz and box.current then table.insert(box.current.objects, s) end
+	return s
+end
+
+function R.put(box, s, x, y, w, h)
+	box.relative[s] = v2(x, y)
+	if w then s.Size = v2(w, h) end
+	R.anchor(box, s)
+	return s
+end
+
+function R.putline(box, s, a, b)
+	box.relative[s] = { a, b }
+	R.anchor(box, s)
+end
+
+function R.sq(box, color, z, x, y, w, h)
+	return R.put(box, R.track(box, R.square(color, box.z + z, box.owner), z), x, y, w, h)
+end
+
+function R.vgrad(box, z, x, y, w, h, top, bot)
+	local g = { strips = {}, box = box, z = z, top = top, bot = bot, x = x, y = y, w = w, h = h, n = 0 }
+	local el = box.current
+
+	local function sample(i, n)
+		return n <= 1 and 0 or (i - 0.5) / n
+	end
+
+	local function ensure(n)
+		for i = #g.strips + 1, n do
+
+			local prev = box.current
+			box.current = el
+			local s = R.sq(box, g.top, z, x, y, 0, 0)
+			box.current = prev
+			hidden[s], s.Visible = true, false
+			g.strips[i] = s
+		end
+	end
+
+	local function apply(i, n)
+		g.strips[i].Color = g.top:Lerp(g.bot, sample(i, n))
+	end
+
+	function g.layout(nx, ny, nw, nh)
+		nh = max(floor(nh), 0)
+		nw = max(floor(nw), 0)
+		local n = (nh > 0 and nw > 0) and min(GRAD_STEPS, nh) or 0
+		-- reflow delta-moves strips without updating g.x/g.y; treat that as dirty
+		local drifted = false
+		local s0 = g.strips[1]
+		local r0 = s0 and box.relative and box.relative[s0]
+		if r0 and g.n > 0 and (r0.X ~= g.x or r0.Y ~= g.y) then
+			drifted = true
+		end
+		if not drifted and n == g.n and nx == g.x and ny == g.y and nw == g.w and nh == g.h then
+			return
+		end
+
+		local old = g.n
+		g.x, g.y, g.w, g.h, g.n = nx, ny, nw, nh, n
+		if n > 0 then ensure(n) end
+
+		for i = 1, n do
+			local s = g.strips[i]
+			local y0 = ny + floor(nh * (i - 1) / n)
+			local y1 = ny + floor(nh * i / n)
+			R.put(box, s, nx, y0, nw, max(y1 - y0, 1))
+			hidden[s] = nil
+			apply(i, n)
+			s.Visible = R.shown(s)
+		end
+		for i = n + 1, max(old, #g.strips) do
+			local s = g.strips[i]
+			if s then
+				hidden[s] = true
+				s.Visible = false
+				R.put(box, s, nx, ny, 0, 0)
+			end
+		end
+	end
+
+	function g.color(t, b)
+		if g.top == t and g.bot == b then return end
+		g.top, g.bot = t, b
+		for i = 1, g.n do apply(i, g.n) end
+	end
+
+	function g.tween(t, b, dur)
+		if g.top == t and g.bot == b then return end
+		g.top, g.bot = t, b
+		local n = g.n
+		if n <= 0 then return end
+		if not dur or dur <= 0 then
+			for i = 1, n do apply(i, n) end
+			return
+		end
+		for i = 1, n do
+			R.tween(g.strips[i], "Color", t:Lerp(b, sample(i, n)), dur)
+		end
+	end
+
+	ensure(max(1, min(GRAD_STEPS, max(floor(h), 1))))
+	g.layout(x, y, w, h)
+	return g
+end
+
+function R.tx(box, str, color, z, x, y, maxw)
+	local s = R.put(box, R.track(box, R.text("", color, box.z + z, box.owner), z), x, y)
+	R.fit(s, str, maxw or box.w - x - 10)
+	return s
+end
+
+function R.ln(box, color, z)
+	return R.track(box, R.add("Line", { Color = color, Thickness = 1, ZIndex = box.z + z }, box.owner), z)
+end
+
+function R.advance(box, h)
+	local y = box.cursor
+	box.cursor = y + h + elgap
+	if box.page then box.page.cursor = box.cursor end
+	box.current = { top = y, bottom = y + h, height = h, objects = {}, box = box }
+	table.insert(box.elements, box.current)
+	return y
+end
+
+function R.reflowbox(box)
+	if not box or box._reflowing then return end
+	box._reflowing = true
+
+	local start = (box.title or box.pages) and header + 6 or 10
+
+	local function reflowlist(els, active)
+		local cursor = start
+		for _, el in ipairs(els or {}) do
+			local objs = el.objects or {}
+			local h = el.height or ((el.bottom or 0) - (el.top or 0))
+			if el.folded then
+				for _, s in ipairs(objs) do
+					clipped[s] = true
+					s.Visible = false
+				end
+			else
+				local top = el.top or cursor
+				local dy = cursor - top
+				if dy ~= 0 then
+					el.top, el.bottom = cursor, cursor + h
+					for _, s in ipairs(objs) do
+						local r = box.relative and box.relative[s]
+						if r then
+							if type(r) == "table" and r[1] then
+								r[1] = v2(r[1].X, r[1].Y + dy)
+								r[2] = v2(r[2].X, r[2].Y + dy)
+							else
+								box.relative[s] = v2(r.X, r.Y + dy)
+							end
+							if R.anchor then R.anchor(box, s) end
+						end
+					end
+					for _, hb in ipairs(hitboxes) do
+						if hb.element == el and not hb.fixed then
+							hb.y += dy
+						end
+					end
+				else
+					el.top, el.bottom = cursor, cursor + h
+				end
+				if active then
+					for _, s in ipairs(objs) do
+						if not el.clipped then clipped[s] = nil end
+					end
+					if R.refresh then R.refresh(objs) end
+				else
+					for _, s in ipairs(objs) do
+						clipped[s] = true
+						s.Visible = false
+					end
+				end
+				cursor = el.bottom + elgap
+			end
+		end
+		return cursor
+	end
+
+	local function runReflows(els)
+		for _, el in ipairs(els or {}) do
+			if el.onreflow then
+				pcall(el.onreflow)
+			end
+		end
+	end
+
+	if box.pages then
+		for _, page in ipairs(box.pages) do
+			page.cursor = reflowlist(page.elements, page == box.page)
+		end
+		box.cursor = box.page and box.page.cursor or start
+		for _, page in ipairs(box.pages) do
+			runReflows(page.elements)
+		end
+	else
+		box.cursor = reflowlist(box.elements, true)
+		runReflows(box.elements)
+	end
+
+	local tab = box.owner
+	if tab and tab.columns then
+		for side, column in ipairs(tab.columns) do
+			for _, b in ipairs(column) do
+				if b == box then
+					if R.layoutcolumn then
+						pcall(R.layoutcolumn, column, side)
+					end
+					box._reflowing = nil
+					return
+				end
+			end
+		end
+	elseif box.h and box.h > 0 then
+		if R.layoutbox and R.contenth then
+			pcall(function()
+				R.layoutbox(box, box.x, box.y, R.contenth(box))
+				if R.clip then R.clip(box) end
+			end)
+		end
+	end
+	box._reflowing = nil
+end
+
+function R.labeled(box, name, ind)
+	ind = ind or 0
+	local left = 10 + ind
+	local w = box.w - 20 - ind
+	local y = R.advance(box, fs + 2 + fieldh)
+	local fy = y + fs + 2
+	local label = R.tx(box, name, dim, 12, left, y)
+	local outline = R.sq(box, black, 11, left, fy, w, fieldh)
+	local fill = R.vgrad(box, 12, left + 1, fy + 1, w - 2, fieldh - 2, gfield_t, gfield_b)
+	R.ontheme(function()
+		label.Color = dim
+		outline.Color = black
+		if fill and fill.color then fill.color(gfield_t, gfield_b) end
+	end)
+	return fy, label, outline, fill, left, w
+end
+
+function R.chevron(box, cx, cy)
+	local size = fs
+	local ix, iy = cx - floor(size / 2), cy - floor(size / 2)
+	local icon = R.track(box, R.icon("down", dim, box.z + 13, box.owner, size), 13)
+	R.put(box, icon, ix, iy)
+	local c = R.animated(1, function(flip)
+		local open = (type(flip) == "number" and flip or 1) < 0
+		R.seticon(icon, open and "up" or "down", size)
+		-- never re-bake create-time ix/iy after reflow moved the icon
+		if box.relative and box.relative[icon] then
+			R.anchor(box, icon)
+		end
+	end)
+	c.flip = 1
+	return c, icon, icon
+end
+
+function R.closefloat()
+	local box = floating
+	if not box then return end
+	floating, box.open = nil, false
+	if popup then popup.close() end
+	R.fadeout(box.frame)
+	R.fadeout(box.items, function()
+		if not box.open then R.refresh() end
+	end)
+end
+
+function R.openfloat(box, rel)
+	R.closefloat()
+	box.open, floating = true, box
+	R.layoutbox(box, clamp(rel.X, 8, width - box.w - 8), clamp(rel.Y, 8, height - box.h - 8), box.h)
+	R.refresh()
+end
+
+local elements = {}
+
+function R.nest(o)
+	return o.parent and 14 or 0
+end
+
+function R.foldkids(parent)
+	local box
+	local function apply(api, show)
+		for _, kid in ipairs(api.kids or {}) do
+			if kid.el then
+				kid.el.folded = not show or nil
+				box = kid.el.box or box
+			end
+			if kid.api and kid.api.kids then
+				apply(kid.api, show and kid.api.value == true)
+			end
+		end
+	end
+	apply(parent, parent.value == true)
+	if box then R.reflowbox(box) end
+end
+
+function R.linkparent(parent, api, el)
+	if not parent then return end
+	parent.kids = parent.kids or {}
+	table.insert(parent.kids, { api = api, el = el })
+	el.folded = parent.value ~= true or nil
+	if el.box then R.reflowbox(el.box) end
+end
+
+function elements.toggle(box, o)
+	local name = o.name or "toggle"
+	local ind = R.nest(o)
+	local left = 10 + ind
+	local y = R.advance(box, fs)
+	local cy = y + floor((fs - 12) / 2)
+	local colorList = nil
+	if type(o.colors) == "table" and #o.colors > 0 then
+		colorList = o.colors
+	elseif o.color ~= nil or o.colorpicker then
+		colorList = { o.color }
+		if o.color2 ~= nil then
+			colorList[2] = o.color2
+		end
+	end
+	if colorList then
+		while #colorList > 6 do
+			table.remove(colorList)
+		end
+	end
+	local colorCount = colorList and #colorList or 0
+	local hascolor = colorCount > 0
+	local swatchSpan = hascolor and (colorCount * 28) or 0
+	local t, hovering = { name = name, key = o.key, mode = o.mode or "toggle", kids = {}, colors = {} }, false
+	R.sq(box, black, 11, left, cy, 12, 12)
+	local check = R.vgrad(box, 12, left + 1, cy + 1, 10, 10, gfield_t, gfield_b)
+
+	local label = R.tx(box, name, dim, 13, left + 20, y)
+	local bindlabel = R.tx(box, "", accent, 14, left + 20, y)
+	local el = box.current
+	local labelmax = box.w - left - 30 - swatchSpan
+
+	local function labelTone()
+		return t.value and bright or hovering and mid or dim
+	end
+
+	local function paint()
+		if t.value then
+			check.tween(gaccent_t, gaccent_b)
+		elseif hovering then
+			check.tween(ghover_t, ghover_b)
+		else
+			check.tween(gfield_t, gfield_b)
+		end
+
+		label.Color = labelTone()
+		bindlabel.Color = accent
+	end
+
+	function t.set(v, silent)
+		t.value = v
+		paint()
+		R.foldkids(t)
+		if not silent then R.fire(o.callback, v) end
+		if R.refreshhotkeys then R.refreshhotkeys() end
+	end
+
+	R.ontheme(function()
+		if t.value then check.color(gaccent_t, gaccent_b)
+		elseif hovering then check.color(ghover_t, ghover_b)
+		else check.color(gfield_t, gfield_b) end
+		label.Color = labelTone()
+		bindlabel.Color = accent
+	end)
+
+	function t.bind(key, mode)
+		t.key, t.mode = key, mode
+		R.fit(label, name, labelmax)
+		local nw = R.textwidth(label)
+		if key then
+			bindlabel.Text = " / " .. key.Name:lower()
+			bindlabel.Color = accent
+			R.put(box, bindlabel, left + 20 + nw, y)
+		else
+			bindlabel.Text = ""
+		end
+		if mode == "always" then t.set(true) end
+		if R.refreshhotkeys then R.refreshhotkeys() end
+	end
+
+	local function colorToHex(color)
+		if typeof(color) ~= "Color3" then
+			return nil
+		end
+		local ok, hex = pcall(function()
+			return color:ToHex()
+		end)
+		if ok and type(hex) == "string" then
+			return hex
+		end
+		return string.format(
+			"%02X%02X%02X",
+			floor(color.R * 255 + 0.5),
+			floor(color.G * 255 + 0.5),
+			floor(color.B * 255 + 0.5)
+		)
+	end
+
+	local function colorFromSaved(v)
+		if type(v) == "table" then
+			v = v.color or v[1] or v.hex
+		end
+		if type(v) ~= "string" or v == "" then
+			return nil
+		end
+		local okc, color = pcall(Color3.fromHex, v)
+		if okc and typeof(color) == "Color3" then
+			return color
+		end
+		return nil
+	end
+
+	function t.save()
+		local data = { value = t.value, key = t.key and t.key.Name, mode = t.mode }
+		if t.colors and #t.colors > 0 then
+			data.colors = {}
+			for i, c in ipairs(t.colors) do
+				local hex = c.save and c.save() or colorToHex(c.value)
+				data.colors[i] = hex
+				-- keep legacy keys for configs from older builds
+				if i == 1 then
+					data.color = hex
+				elseif i == 2 then
+					data.color2 = hex
+				end
+			end
+		elseif t.color then
+			data.color = t.color.save()
+			if t.color2 then
+				data.color2 = t.color2.save()
+			end
+		end
+		return data
+	end
+
+	function t.load(data)
+		if type(data) ~= "table" then
+			return
+		end
+		local ok, key = pcall(function()
+			return data.key and keys[data.key]
+		end)
+		t.set(data.value == true)
+		t.bind(ok and key or nil, data.mode or "toggle")
+		if t.colors and #t.colors > 0 then
+			for i, c in ipairs(t.colors) do
+				local raw = nil
+				if type(data.colors) == "table" then
+					raw = data.colors[i] or data.colors[tostring(i)]
+				end
+				if raw == nil and i == 1 then
+					raw = data.color
+				end
+				if raw == nil and i == 2 then
+					raw = data.color2
+				end
+				if raw ~= nil then
+					c.load(raw)
+				end
+			end
+		else
+			if t.color and data.color then
+				t.color.load(data.color)
+			end
+			if t.color2 and data.color2 then
+				t.color2.load(data.color2)
+			end
+		end
+	end
+
+	if hascolor then
+		local copts = type(o.colorpicker) == "table" and o.colorpicker or {}
+		local callbacks = type(o.colorcallbacks) == "table" and o.colorcallbacks or nil
+		for i = 1, colorCount do
+			local default = colorList[i]
+			if type(default) ~= "userdata" and type(default) ~= "table" then
+				default = (i == 1 and (copts.default or accent)) or accent
+			end
+			local c = { default = default, index = i }
+			local sx = box.w - (swatchSpan - (i - 1) * 28) - 6
+			R.sq(box, black, 11, sx, cy, 24, 12)
+			local swatch = R.sq(box, field, 12, sx + 1, cy + 1, 22, 10)
+			function c.set(color, silent)
+				c.value = color
+				R.tween(swatch, "Color", color, 0.1)
+				if not silent then
+					local cb = (callbacks and callbacks[i])
+						or (i == 1 and (copts.callback or o.colorcallback))
+						or (i == 2 and o.colorcallback2)
+						or nil
+					R.fire(cb, color, i)
+				end
+			end
+			function c.save()
+				return colorToHex(c.value)
+			end
+			function c.load(v)
+				local color = colorFromSaved(v)
+				if color then
+					c.set(color)
+				end
+			end
+			R.hitbox(box, {
+				x = sx, y = y, w = 24, h = fs,
+				click = function(rel) R.openpicker(c, rel) end,
+				rightclick = function(rel) R.opencolormenu(c, rel) end,
+				hover = R.noop,
+				when = function() return not el.folded end,
+			})
+			c.set(default, true)
+			t.colors[i] = c
+			if i == 1 then t.color = c end
+			if i == 2 then t.color2 = c end
+		end
+	end
+
+	R.hitbox(box, {
+		x = left, y = y, w = box.w - left - 10 - swatchSpan, h = fs,
+		click = function() t.set(not t.value) end,
+		rightclick = function(rel) R.openbind(t, rel) end,
+		hover = function(state)
+			hovering = state
+			paint()
+		end,
+		when = function() return not el.folded end,
+	})
+
+	R.linkparent(o.parent, t, el)
+	table.insert(toggles, t)
+	t.set(o.default == true, true)
+	t.bind(t.key, t.mode)
+	return t
+end
+
+function R.makeslider(box, o, left, y, w, el)
+	local lo, hi, inc = o.min or 0, o.max or 100, o.step or 0.1
+	local pattern = "%." .. #(tostring(inc):match("%.(%d+)") or "") .. "f"
+	local bary = y + fs + 2
+	local s = { name = o.name or "slider", min = lo, max = hi, step = inc }
+	local label = R.tx(box, s.name, dim, 12, left, y)
+	local amount = R.tx(box, "", bright, 14, left, y)
+	local trackOutline = R.sq(box, black, 11, left, bary, w, 10)
+	local track = R.vgrad(box, 12, left + 1, bary + 1, w - 2, 8, gfield_t, gfield_b)
+	local fill = R.vgrad(box, 13, left + 1, bary + 1, 0, 8, gaccent_t, gaccent_b)
+	local hit
+
+	local function liveY()
+		-- el.top is authoritative after reflow; drawing relatives can lag
+		local ly = (el and el.top) or y
+		local r = box.relative and box.relative[trackOutline]
+		local by = ly + fs + 2
+		if r and (not el or not el.top) then
+			by = r.Y
+			ly = by - fs - 2
+		end
+		return by, ly
+	end
+
+	local function paintfill(fw)
+		local by = liveY()
+		track.layout(left + 1, by + 1, w - 2, 8)
+		fill.layout(left + 1, by + 1, floor(fw), 8)
+	end
+
+	local knob = R.animated(0, function(fw)
+		paintfill(fw)
+	end)
+
+	local function placevalue()
+		local _, ly = liveY()
+		amount.Color = bright
+		local tw = R.textwidth(amount)
+		R.put(box, amount, left + w - tw, ly)
+		R.put(box, label, left, ly)
+		R.fit(label, s.name, max(w - tw - 8, 20))
+		label.Color = dim
+	end
+
+	local function layoutSlider()
+		local by, ly = liveY()
+		R.put(box, trackOutline, left, by, w, 10)
+		if hit then
+			hit.x, hit.y, hit.w, hit.h = left, ly, w, fs + 2 + 10
+		end
+		local fw = (w - 2) * (((s.value or lo) - lo) / math.max(hi - lo, 1e-6))
+		paintfill(fw)
+		placevalue()
+	end
+
+	local function update(v)
+		v = tonumber(pattern:format(clamp(lo + floor((v - lo) / inc + 0.5) * inc, lo, hi)))
+		if v == s.value then
+			layoutSlider()
+			return false
+		end
+		s.value = v
+		amount.Text = pattern:format(v)
+		knob.width = (w - 2) * (v - lo) / (hi - lo)
+		fill.color(gaccent_t, gaccent_b)
+		layoutSlider()
+		return true
+	end
+
+	function s.retheme()
+		label.Color = dim
+		amount.Color = bright
+		fill.color(gaccent_t, gaccent_b)
+		track.color(gfield_t, gfield_b)
+		layoutSlider()
+	end
+	R.ontheme(s.retheme)
+
+	function s.set(v, silent)
+		if update(v) and not silent then R.fire(o.callback, s.value) end
+	end
+
+	function s.drag(rel)
+		local by = liveY()
+		s.set(lo + (hi - lo) * clamp((rel.X - box.x - left - 1) / (w - 2), 0, 1))
+	end
+
+	function s.save() return s.value end
+	function s.load(v) if type(v) == "number" then s.set(v) end end
+	s.layout = layoutSlider
+	el.onreflow = layoutSlider
+
+	hit = R.hitbox(box, {
+		x = left, y = y, w = w, h = fs + 2 + 10,
+		click = function(rel)
+
+			if uis:IsKeyDown(keys.LeftControl) or uis:IsKeyDown(keys.RightControl) then
+				R.openslidervalue(s, rel)
+				return
+			end
+			sliding = s
+			s.drag(rel)
+		end,
+		hover = function(state)
+			if state then track.tween(ghover_t, ghover_b) else track.tween(gfield_t, gfield_b) end
+			R.tween(label, "Color", state and mid or dim)
+			amount.Color = bright
+		end,
+		when = function() return not el.folded end,
+	})
+
+	table.insert(sliders, s)
+	update(o.default or lo)
+	layoutSlider()
+	return s
+end
+
+function elements.slider(box, o)
+	local ind = R.nest(o)
+	local left = 10 + ind
+	local w = box.w - 20 - ind
+	local y = R.advance(box, fs + 2 + 10)
+	local el = box.current
+	local s = R.makeslider(box, o, left, y, w, el)
+	R.linkparent(o.parent, s, el)
+	return s
+end
+
+function elements.sliderrow(box, sliders)
+	local gap = 6
+	local parent = sliders[1] and sliders[1].parent
+	local ind = parent and 14 or 0
+	local left0 = 10 + ind
+	local total = box.w - left0 - 10
+	local n = max(#sliders, 1)
+	local sw = floor((total - gap * (n - 1)) / n)
+	local y = R.advance(box, fs + 2 + 10)
+	local el = box.current
+	local row = { _parts = {} }
+	local layouts = {}
+	for i, o in ipairs(sliders) do
+		local left = left0 + (i - 1) * (sw + gap)
+		local s = R.makeslider(box, o, left, y, sw, el)
+		layouts[i] = el.onreflow
+		row[i] = s
+		if o.name then row[o.name] = s end
+		table.insert(row._parts, { api = s, options = o })
+	end
+	el.onreflow = function()
+		for _, fn in ipairs(layouts) do
+			if fn then pcall(fn) end
+		end
+	end
+	R.linkparent(parent, row, el)
+	return row
+end
+
+function R.dropdrawing(s, box)
+	pcall(function() s:Remove() end)
+	for i = #objects, 1, -1 do
+		if objects[i] == s then table.remove(objects, i) break end
+	end
+	if box then
+		for i = #box.items, 1, -1 do
+			if box.items[i] == s then table.remove(box.items, i) break end
+		end
+		box.relative[s] = nil
+		for _, el in ipairs(box.elements) do
+			for i = #el.objects, 1, -1 do
+				if el.objects[i] == s then table.remove(el.objects, i) break end
+			end
+		end
+	end
+	offsets[s], owners[s], hidden[s], clipped[s], alpha[s], tweens[s] = nil, nil, nil, nil, nil, nil
+end
+
+function R.makebutton(box, o, x, y, w, h, el)
+	local hovering = false
+	local ix, iy, iw, ih = x + 1, y + 1, w - 2, h - 2
+	R.sq(box, black, 11, x, y, w, h)
+	local fill = R.vgrad(box, 12, ix, iy, iw, ih, gfield_t, gfield_b)
+	local label = R.tx(box, "", mid, 14, x + floor(w / 2), y + 4)
+	label.Center = true
+	R.fit(label, o.name or "button", w - 8)
+
+	R.hitbox(box, {
+		x = x, y = y, w = w, h = h,
+		click = function()
+			fill.color(gaccent_t, gaccent_b)
+			fill.tween(hovering and ghover_t or gfield_t, hovering and ghover_b or gfield_b, 0.4)
+			R.fire(o.callback)
+		end,
+		hover = function(state)
+			hovering = state
+			if state then fill.tween(ghover_t, ghover_b) else fill.tween(gfield_t, gfield_b) end
+			R.tween(label, "Color", state and bright or mid)
+		end,
+		when = function() return not (el and el.folded) end,
+	})
+	R.ontheme(function()
+		if hovering then fill.color(ghover_t, ghover_b) else fill.color(gfield_t, gfield_b) end
+		label.Color = hovering and bright or mid
+	end)
+end
+
+function elements.button(box, o)
+	local ind = R.nest(o)
+	local w, h = box.w - 20 - ind, fs + 9
+	local y = R.advance(box, h)
+	local el = box.current
+	R.makebutton(box, o, 10 + ind, y, w, h, el)
+	local b = {}
+	R.linkparent(o.parent, b, el)
+	return b
+end
+
+function elements.buttonrow(box, buttons)
+	local gap, h = 6, fs + 9
+	local total = box.w - 20
+	local bw = floor((total - gap * (#buttons - 1)) / #buttons)
+	local y = R.advance(box, h)
+	local el = box.current
+	for i, o in ipairs(buttons) do
+		R.makebutton(box, o, 10 + (i - 1) * (bw + gap), y, bw, h, el)
+	end
+	return {}
+end
+
+function elements.dropdown(box, o)
+	local ind, rowh = R.nest(o), fs + 5
+	local maxvis = clamp(tonumber(o.max) or tonumber(o.size) or 8, 1, 16)
+	local d = { open = false, options = {}, multi = o.multi, scroll = 0 }
+	local fy, label, outline, fill, left, w = R.labeled(box, o.name or "dropdown", ind)
+	local element = box.current
+	local current = R.tx(box, "", bright, 13, left + 6, fy + 3)
+	local chev, a = R.chevron(box, left + w - 12, fy + floor(fieldh / 2))
+
+	local listy = fy + fieldh + 2
+	local bg = R.sq(box, black, popupz, left, listy, w, 2)
+	local list, rows = { bg }, {}
+	hidden[bg], bg.Visible = true, false
+	local fieldHit
+	local display, layoutDropdown, paintrows
+
+	local function labelTop()
+		if element and element.top then
+			return element.top
+		end
+		local r = box.relative and box.relative[label]
+		if r then
+			return r.Y
+		end
+		return fy - fs - 2
+	end
+
+	local function fieldTop()
+		return labelTop() + fs + 2
+	end
+
+	function display()
+		local maxw = w - 28
+		local str = d.multi and table.concat(d.value, ", ") or d.value
+		if not str or str == "" then
+			current.Text, current.Color = "none", dim
+		elseif d.multi then
+			R.ellipsis(current, str, maxw)
+			current.Color = bright
+		else
+			R.fit(current, str, maxw)
+			current.Color = bright
+		end
+	end
+
+	function layoutDropdown()
+		local ltop = labelTop()
+		local ftop = ltop + fs + 2
+		local listTop = ftop + fieldh + 2
+		local size = fs
+		R.put(box, label, left, ltop)
+		R.put(box, outline, left, ftop, w, fieldh)
+		if fill and fill.layout then
+			fill.layout(left + 1, ftop + 1, w - 2, fieldh - 2)
+		end
+		R.put(box, current, left + 6, ftop + 3)
+		R.put(box, a, left + w - 12 - floor(size / 2), ftop + floor(fieldh / 2) - floor(size / 2))
+		if fieldHit then
+			fieldHit.x, fieldHit.y, fieldHit.w, fieldHit.h = left, ftop, w, fieldh
+		end
+		R.put(box, bg, left, listTop)
+		for i, row in ipairs(rows) do
+			local ry = listTop + 1 + (i - 1) * rowh
+			R.put(box, row.fill, left + 1, ry, w - 2, rowh)
+			R.put(box, row.label, left + 6, ry + 2)
+			if row.hit then
+				row.hit.x, row.hit.y = left, ry
+			end
+		end
+		if element.folded then
+			if d.open and d.close then
+				d.close()
+			end
+			hidden[current] = true
+			current.Visible = false
+			hidden[a] = true
+			a.Visible = false
+		else
+			hidden[current] = nil
+			hidden[a] = nil
+			current.Visible = R.shown(current)
+			a.Visible = R.shown(a)
+			display()
+		end
+	end
+
+	local function picked(option)
+		if d.multi then return table.find(d.value, option) ~= nil end
+		return d.value == option
+	end
+
+	local function viscount()
+		return min(#d.options, maxvis)
+	end
+
+	local function maxscroll()
+		return max(0, #d.options - maxvis)
+	end
+
+	local function optionat(slot)
+		return d.options[d.scroll + slot]
+	end
+
+	function paintrows()
+		layoutDropdown()
+		d.scroll = clamp(d.scroll, 0, maxscroll())
+		local vis = viscount()
+		local h = vis > 0 and vis * rowh + 2 or 2
+		bg.Size = v2(w, h)
+		for i, row in ipairs(rows) do
+			local option = optionat(i)
+			local hide = not d.open or i > vis or not option
+			hidden[row.fill] = hide or nil
+			hidden[row.label] = hide or nil
+			if hide then
+				row.fill.Visible = false
+				row.label.Visible = false
+			else
+				R.fit(row.label, option, w - 12)
+				row.fill.Color = picked(option) and accent or field
+				row.label.Color = picked(option) and accent or dim
+			end
+		end
+		if d.open then R.refresh(list) end
+	end
+
+	for i = 1, maxvis do
+		local ry = listy + 1 + (i - 1) * rowh
+		local row = {
+			fill = R.sq(box, field, popupz + 1, left + 1, ry, w - 2, rowh),
+			label = R.tx(box, "", dim, popupz + 2, left + 6, ry + 2),
+		}
+		hidden[row.fill], row.fill.Visible = true, false
+		hidden[row.label], row.label.Visible = true, false
+		table.insert(list, row.fill)
+		table.insert(list, row.label)
+		row.hit = R.hitbox(box, {
+			x = left, y = ry, w = w, h = rowh, top = true, dropdown = d, element = element,
+			when = function() return d.open and optionat(i) ~= nil and not element.folded end,
+			click = function()
+				local option = optionat(i)
+				if option then d.pick(option) end
+			end,
+			hover = function(state)
+				local option = optionat(i)
+				if not option then return end
+				local base = picked(option) and accent or field
+				R.snaptween(row.fill, "Color", state and fieldhover or base)
+				R.snaptween(row.label, "Color", picked(option) and accent or (state and mid or dim))
+			end,
+		})
+		rows[i] = row
+	end
+
+	function d.set(v, silent)
+		if d.multi then
+			local chosen = {}
+			for _, option in ipairs(d.options) do
+				if table.find(v or {}, option) then table.insert(chosen, option) end
+			end
+			d.value = chosen
+		else
+			d.value = v
+		end
+		display()
+		if d.open then paintrows() end
+		if not silent then R.fire(o.callback, d.value) end
+	end
+
+	function d.pick(option)
+		if not d.multi then
+			d.set(option)
+			return d.close()
+		end
+		local chosen = table.clone(d.value)
+		local i = table.find(chosen, option)
+		if i then table.remove(chosen, i) else table.insert(chosen, option) end
+		d.set(chosen)
+	end
+
+	function d.setoptions(options)
+		d.options = options or {}
+		d.scroll = clamp(d.scroll, 0, maxscroll())
+		if d.multi then
+			d.set(d.value, true)
+		elseif not table.find(d.options, d.value) then
+			d.set(d.options[1], true)
+		else
+			display()
+		end
+		if d.open then paintrows() end
+	end
+
+	function d.wheel(dir)
+		if not d.open then return end
+		local next = clamp(d.scroll + dir, 0, maxscroll())
+		if next == d.scroll then return end
+		d.scroll = next
+		paintrows()
+	end
+
+	function d.show()
+		if popup then popup.close() end
+		d.open, popup = true, d
+		layoutDropdown()
+		-- keep selection in view when opening
+		if not d.multi and d.value then
+			local idx = table.find(d.options, d.value)
+			if idx then
+				d.scroll = idx <= maxvis and 0 or clamp(idx - maxvis, 0, maxscroll())
+			end
+		end
+		R.tween(chev, "flip", -1)
+		R.snaptween(a, "Color", accent)
+		hidden[bg] = false
+		bg.Color = black
+		local vis = viscount()
+		bg.Size = v2(w, 0)
+		R.tween(bg, "Size", v2(w, vis > 0 and vis * rowh + 2 or 2))
+		paintrows()
+	end
+
+	function d.close()
+		d.open = false
+		if popup == d then popup = nil end
+		R.tween(chev, "flip", 1)
+		R.snaptween(a, "Color", dim)
+		R.fadeout(list, function()
+			if d.open then return end
+			for _, s in ipairs(list) do hidden[s] = true end
+			R.refresh(list)
+		end)
+	end
+
+	function d.save() return d.value end
+	function d.load(v) d.set(v) end
+	d.layout = layoutDropdown
+	element.onreflow = layoutDropdown
+
+	local function retheme()
+		bg.Color = black
+		label.Color = dim
+		a.Color = d.open and accent or dim
+		if fill and fill.color then fill.color(gfield_t, gfield_b) end
+		display()
+		layoutDropdown()
+		if d.open then paintrows() end
+	end
+	R.ontheme(retheme)
+
+	fieldHit = R.hitbox(box, {
+		x = left, y = fy, w = w, h = fieldh, dropdown = d, element = element,
+		click = function()
+			if d.open then d.close() else d.show() end
+		end,
+		hover = function(state)
+			if state then fill.tween(ghover_t, ghover_b, 0) else fill.tween(gfield_t, gfield_b, 0) end
+			R.snaptween(label, "Color", state and mid or dim)
+		end,
+		when = function() return not element.folded end,
+	})
+
+	R.linkparent(o.parent, d, element)
+	d.value = d.multi and {} or nil
+	d.setoptions(o.options or {})
+	if o.default then d.set(o.default, true) end
+	layoutDropdown()
+	return d
+end
+
+function elements.textbox(box, o)
+	local ind = R.nest(o)
+	local t = { value = o.default or "" }
+	local fy, label, outline, fill, left, w = R.labeled(box, o.name or "textbox", ind)
+	local display = R.tx(box, "", bright, 13, left + 6, fy + 3)
+	local el = box.current
+
+	local function draw()
+		local focused = capture == t
+		local str = t.value .. (focused and "_" or "")
+		R.fit(display, str ~= "" and str or o.placeholder or "...", w - 12, focused)
+		display.Color = (t.value ~= "" or focused) and bright or dim
+	end
+
+	function t.set(v, silent)
+		t.value = v
+		draw()
+		if not silent then R.fire(o.callback, v) end
+	end
+
+	function t.release()
+		capture = nil
+		R.stopkeyrepeat()
+		R.tween(outline, "Color", black)
+		draw()
+		R.fire(o.callback, t.value)
+	end
+
+	function t.key(input)
+		local k = input.KeyCode
+		if k == keys.Return or k == keys.Escape then return t.release() end
+		if k == keys.Backspace then
+			t.value = t.value:sub(1, -2)
+		elseif k == keys.Space then
+			t.value ..= " "
+		else
+			local char = uis:GetStringForKeyCode(k)
+			if char and #char == 1 then
+				local shift = uis:IsKeyDown(keys.LeftShift) or uis:IsKeyDown(keys.RightShift)
+				t.value ..= shift and char:upper() or char:lower()
+			end
+		end
+		draw()
+	end
+
+	function t.save() return t.value end
+	function t.load(v) if type(v) == "string" then t.set(v) end end
+
+	R.hitbox(box, {
+		x = left, y = fy, w = w, h = fieldh, capture = t,
+		click = function()
+			if capture == t then return end
+			if capture then capture.release() end
+			capture = t
+			R.tween(outline, "Color", accent)
+			draw()
+		end,
+		hover = function(state)
+			if state then fill.tween(ghover_t, ghover_b) else fill.tween(gfield_t, gfield_b) end
+			R.tween(label, "Color", state and mid or dim)
+		end,
+		when = function() return not el.folded end,
+	})
+
+	R.ontheme(function()
+		label.Color = dim
+		outline.Color = capture == t and accent or black
+		if fill and fill.color then
+			fill.color(gfield_t, gfield_b)
+		end
+		draw()
+	end)
+
+	R.linkparent(o.parent, t, el)
+	draw()
+	return t
+end
+
+function elements.colorpicker(box, o)
+	local ind = R.nest(o)
+	local left = 10 + ind
+	local w = box.w - 20 - ind
+	local y = R.advance(box, fs)
+	local cy = y + floor((fs - 12) / 2)
+	local c = {
+		default = o.default or accent,
+		usealpha = o.alpha == true,
+		alpha = clamp(tonumber(o.defaultalpha) or 1, 0, 1),
+	}
+	local label = R.tx(box, o.name or "color", dim, 12, left, y, w - 30)
+	local border = R.sq(box, black, 11, left + w - 24, cy, 24, 12)
+	local swatch = R.sq(box, field, 12, left + w - 23, cy + 1, 22, 10)
+	local el = box.current
+
+	R.ontheme(function()
+		label.Color = dim
+		border.Color = black
+	end)
+
+	function c.set(color, silent, a)
+		if typeof(color) == "Color3" then c.value = color end
+		if c.usealpha and type(a) == "number" then c.alpha = clamp(a, 0, 1) end
+		R.tween(swatch, "Color", c.value, 0.1)
+		if c.usealpha then
+			alpha[swatch] = c.alpha
+			if R.shown(swatch) then swatch.Transparency = c.alpha end
+		end
+		if not silent then
+			if c.usealpha then R.fire(o.callback, c.value, c.alpha) else R.fire(o.callback, c.value) end
+		end
+	end
+
+	function c.save()
+		if c.usealpha then
+			return { color = c.value:ToHex(), alpha = c.alpha }
+		end
+		return c.value:ToHex()
+	end
+	function c.load(v)
+		if type(v) == "table" then
+			local ok, color = pcall(Color3.fromHex, v.color or v[1] or "")
+			if ok and color then c.set(color, false, tonumber(v.alpha) or c.alpha) end
+			return
+		end
+		local ok, color = pcall(Color3.fromHex, v)
+		if ok then c.set(color) end
+	end
+
+	R.hitbox(box, {
+		x = left, y = y, w = w, h = fs,
+		click = function(rel) R.openpicker(c, rel) end,
+		rightclick = function(rel) R.opencolormenu(c, rel) end,
+		hover = function(state) R.tween(label, "Color", state and mid or dim) end,
+		when = function() return not el.folded end,
+	})
+
+	R.linkparent(o.parent, c, el)
+	c.set(c.default, true, c.alpha)
+	return c
+end
+
+function elements.list(box, o)
+	local options = {}
+	for _, opt in ipairs(o.options or {}) do table.insert(options, tostring(opt)) end
+	local multi = o.multi == true
+	local rows = max(1, o.size or min(max(#options, 1), 6))
+	local rowh = fs + 2
+	local ind = R.nest(o)
+	local left = 10 + ind
+	local w = box.w - 20 - ind
+	local haslabel = o.name and o.name ~= ""
+	local listH = rows * rowh + 2
+	local y = R.advance(box, (haslabel and fs + 2 or 0) + listH)
+	local listy = y
+	local title
+	if haslabel then
+		title = R.tx(box, o.name, dim, 12, left, y, w)
+		listy = y + fs + 2
+	end
+	local listborder = R.sq(box, black, 11, left, listy, w, listH)
+	local listbg = R.sq(box, field, 12, left + 1, listy + 1, w - 2, listH - 2)
+	local el = box.current
+	local L = { options = options, multi = multi, rows = {} }
+	local selected = {}
+
+	local function selectedlist()
+		local out = {}
+		for _, name in ipairs(options) do
+			if selected[name] then table.insert(out, name) end
+		end
+		return out
+	end
+
+	local function paintrow(row)
+		local on = selected[row.name] == true
+		local col = on and accent or (row.hovering and fieldhover or field)
+		R.snaptween(row.fill, "Color", col)
+		R.snaptween(row.label, "Color", on and bright or row.hovering and mid or dim)
+	end
+
+	local function fire()
+		R.fire(o.callback, multi and selectedlist() or (selectedlist()[1] or nil))
+	end
+
+	function L.set(v, silent)
+		table.clear(selected)
+		if multi then
+			local set = {}
+			if type(v) == "table" then
+				for _, name in ipairs(v) do set[tostring(name)] = true end
+			elseif v ~= nil then
+				set[tostring(v)] = true
+			end
+			for _, name in ipairs(options) do
+				if set[name] then selected[name] = true end
+			end
+		elseif v ~= nil then
+			selected[tostring(v)] = true
+		end
+		for _, row in ipairs(L.rows) do paintrow(row) end
+		if not silent then fire() end
+	end
+
+	function L.setoptions(nextopts, keep)
+		options = {}
+		for _, opt in ipairs(nextopts or {}) do table.insert(options, tostring(opt)) end
+		L.options = options
+		for i, row in ipairs(L.rows) do
+			local name = options[i]
+			row.name = name or ""
+			if name then
+				R.fit(row.label, name, w - 12)
+				row.label.Visible = not el.folded
+				for _, s in ipairs(row.drawings) do
+					if not el.folded then clipped[s] = nil end
+				end
+			else
+				row.label.Text = ""
+				for _, s in ipairs(row.drawings) do
+					clipped[s] = true
+					s.Visible = false
+				end
+			end
+			paintrow(row)
+		end
+		if not keep then L.set(multi and {} or nil, true) end
+	end
+
+	function L.save()
+		return multi and selectedlist() or (selectedlist()[1] or nil)
+	end
+
+	function L.load(v) L.set(v) end
+
+	for i = 1, rows do
+		local ry = listy + 1 + (i - 1) * rowh
+		local fill = R.sq(box, field, 13, left + 1, ry, w - 2, rowh)
+		local label = R.tx(box, "", dim, 14, left + 6, ry + floor((rowh - fs) / 2), w - 12)
+		local drawings = { fill, label }
+		local row = { name = options[i] or "", fill = fill, label = label, hovering = false, drawings = drawings }
+		if options[i] then R.fit(label, options[i], w - 12) end
+		L.rows[i] = row
+		R.hitbox(box, {
+			x = left + 1, y = ry, w = w - 2, h = rowh,
+			click = function()
+				if not row.name or row.name == "" then return end
+				if multi then
+					selected[row.name] = not selected[row.name] or nil
+				else
+					table.clear(selected)
+					selected[row.name] = true
+				end
+				for _, r in ipairs(L.rows) do paintrow(r) end
+				fire()
+			end,
+			hover = function(state)
+				row.hovering = state
+				paintrow(row)
+			end,
+			when = function() return not el.folded and row.name ~= "" end,
+		})
+		if not options[i] then
+			for _, s in ipairs(drawings) do
+				clipped[s] = true
+				s.Visible = false
+			end
+		end
+	end
+
+	R.ontheme(function()
+		if title then title.Color = dim end
+		listborder.Color = black
+		listbg.Color = field
+		for _, row in ipairs(L.rows) do paintrow(row) end
+	end)
+
+	R.linkparent(o.parent, L, el)
+	if o.default ~= nil then
+		L.set(o.default, true)
+	elseif not multi and options[1] then
+		L.set(options[1], true)
+	else
+		L.set(multi and {} or nil, true)
+	end
+	return L
+end
+
+function R.keyfield(box, o)
+	local w = box.w - 20
+	local k = {}
+	local fy, label, outline, fill = R.labeled(box, o.name or "key")
+	local bind = R.tx(box, "", dim, 13, 16, fy + 3)
+
+	local function draw()
+		local listening = capture == k
+		R.fit(bind, listening and "press a key..." or k.value and k.value.Name:lower() or "none", w - 12)
+		R.snaptween(bind, "Color", listening and accent or k.value and bright or dim)
+		R.snaptween(outline, "Color", listening and accent or black)
+	end
+
+	function k.set(key)
+		k.value = key
+		draw()
+	end
+
+	function k.release()
+		capture = nil
+		R.stopkeyrepeat()
+		draw()
+	end
+
+	function k.key(input)
+		local key = input.KeyCode
+		k.value = key ~= keys.Escape and key ~= keys.Backspace and key or nil
+		k.release()
+		R.fire(o.callback, k.value)
+	end
+
+	R.hitbox(box, {
+		x = 10, y = fy, w = w, h = fieldh, capture = k,
+		click = function()
+			if capture then capture.release() end
+			capture = k
+			draw()
+		end,
+		hover = function(state)
+			if state then fill.tween(ghover_t, ghover_b, 0) else fill.tween(gfield_t, gfield_b, 0) end
+			R.snaptween(label, "Color", state and mid or dim)
+		end,
+	})
+
+	R.ontheme(draw)
+	draw()
+	return k
+end
+
+function elements.keyfield(box, o)
+	return R.keyfield(box, o)
+end
+
+function R.solid(box)
+	if not (box.h and box.h > 0) then
+		box.h = box.cursor + (8 - elgap)
+	end
+	box.blockhit = R.hitbox(box, { x = 0, y = 0, w = box.w, h = box.h, priority = -1, click = R.noop, hover = R.noop })
+end
+
+local valuebox = R.newbox(nil, nil, 120, 60)
+local valuetarget
+local valuecap = { value = "" }
+local valueleft, valuew = 10, valuebox.w - 20
+local valuefy = R.advance(valuebox, fieldh)
+local valueoutline = R.sq(valuebox, black, 11, valueleft, valuefy, valuew, fieldh)
+local valuefill = R.vgrad(valuebox, 12, valueleft + 1, valuefy + 1, valuew - 2, fieldh - 2, gfield_t, gfield_b)
+local valuedisplay = R.tx(valuebox, "", bright, 13, valueleft + 6, valuefy + 3)
+
+local function valuedraw()
+	local focused = capture == valuecap
+	local str = valuecap.value .. (focused and "_" or "")
+	R.fit(valuedisplay, str ~= "" and str or "...", valuew - 12, focused)
+	valuedisplay.Color = (valuecap.value ~= "" or focused) and bright or dim
+end
+
+function valuecap.release(cancel)
+	if capture == valuecap then capture = nil end
+	R.stopkeyrepeat()
+	R.tween(valueoutline, "Color", black)
+	if not cancel and valuetarget then
+		local n = tonumber(valuecap.value)
+		if n then valuetarget.set(n) end
+	end
+	valuedraw()
+	if floating == valuebox then R.closefloat() end
+end
+
+function valuecap.key(input)
+	local k = input.KeyCode
+	if k == keys.Return then return valuecap.release() end
+	if k == keys.Escape then return valuecap.release(true) end
+	if k == keys.Backspace then
+		valuecap.value = valuecap.value:sub(1, -2)
+	else
+		local char = uis:GetStringForKeyCode(k)
+		if k == keys.Period or k == keys.KeypadPeriod then char = "." end
+		if k == keys.Minus or k == keys.KeypadMinus then char = "-" end
+		if char == "." then
+			if not valuecap.value:find(".", 1, true) then valuecap.value ..= "." end
+		elseif char == "-" then
+			if valuecap.value == "" and valuetarget and valuetarget.min < 0 then
+				valuecap.value = "-"
+			end
+		elseif char and #char == 1 and char:match("%d") then
+			valuecap.value ..= char
+		end
+	end
+	valuedraw()
+end
+
+R.hitbox(valuebox, {
+	x = valueleft, y = valuefy, w = valuew, h = fieldh, capture = valuecap,
+	click = function()
+		if capture == valuecap then return end
+		if capture then capture.release() end
+		capture = valuecap
+		R.tween(valueoutline, "Color", accent)
+		valuedraw()
+	end,
+	hover = function(state)
+		if state then valuefill.tween(ghover_t, ghover_b) else valuefill.tween(gfield_t, gfield_b) end
+	end,
+})
+R.solid(valuebox)
+valuedraw()
+
+function R.openslidervalue(s, rel)
+	valuetarget = s
+	valuecap.value = ""
+	valuedraw()
+	R.openfloat(valuebox, rel)
+	if capture and capture ~= valuecap then capture.release() end
+	capture = valuecap
+	R.tween(valueoutline, "Color", accent)
+	valuedraw()
+end
+
+local bindbox = R.newbox(nil, "keybind", 170, 60)
+local bindtarget
+
+local bindkey = R.keyfield(bindbox, {
+	name = "key",
+	callback = function(key) bindtarget.bind(key, bindtarget.mode) end,
+})
+local bindmode = elements.dropdown(bindbox, {
+	name = "mode",
+	options = { "toggle", "hold", "always" },
+	callback = function(mode) bindtarget.bind(bindtarget.key, mode) end,
+})
+R.solid(bindbox)
+
+function R.openbind(t, rel)
+	bindtarget = t
+	bindkey.set(t.key)
+	bindmode.set(t.mode, true)
+	R.openfloat(bindbox, rel)
+end
+
+local colormenu = R.newbox(nil, nil, 120, 60)
+local colortarget, copied
+
+elements.button(colormenu, { name = "copy", callback = function()
+	copied = colortarget.value
+	if setclipboard then pcall(setclipboard, "#" .. copied:ToHex()) end
+	R.closefloat()
+end })
+elements.button(colormenu, { name = "paste", callback = function()
+	if copied then colortarget.set(copied) end
+	R.closefloat()
+end })
+elements.button(colormenu, { name = "reset", callback = function()
+	colortarget.set(colortarget.default)
+	R.closefloat()
+end })
+R.solid(colormenu)
+
+function R.opencolormenu(c, rel)
+	colortarget = c
+	R.openfloat(colormenu, rel)
+end
+
+local picker
+
+function R.buildpicker()
+	local box = R.newbox(nil, nil, 170, 60)
+	local p = { box = box, a = 1, usealpha = false, alphastrip = {} }
+	local area, ay = 128, 10
+	local aw, ah, agap = 150, 10, 8
+	local ay_alpha = ay + area + agap
+
+	p.base = R.sq(box, accent, 11, 10, ay, area, area)
+	for i = 0, area - 1 do
+		alpha[R.sq(box, rgb(255, 255, 255), 12, 10 + i, ay, 1, area)] = 1 - i / (area - 1)
+	end
+	for j = 0, area - 1 do
+		alpha[R.sq(box, rgb(0, 0, 0), 13, 10, ay + j, area, 1)] = j / (area - 1)
+	end
+	for k = 0, area - 1 do
+		R.sq(box, hsv(k / area, 1, 1), 11, 148, ay + k, 12, 1)
+	end
+	local svouter = R.sq(box, black, 14, 0, 0, 6, 6)
+	local svinner = R.sq(box, bright, 15, 0, 0, 4, 4)
+	local hueouter = R.sq(box, black, 14, 146, 0, 16, 4)
+	local hueinner = R.sq(box, bright, 15, 147, 0, 14, 2)
+
+	p.alphabg = R.sq(box, black, 11, 10, ay_alpha, aw, ah)
+	for i = 0, aw - 1 do
+		local s = R.sq(box, accent, 12, 10 + i, ay_alpha, 1, ah)
+		table.insert(p.alphastrip, s)
+		alpha[s] = i / max(aw - 1, 1)
+	end
+	local aouter = R.sq(box, black, 14, 0, 0, 4, ah + 4)
+	local ainner = R.sq(box, bright, 15, 0, 0, 2, ah + 2)
+	p.alphaobjs = { p.alphabg, aouter, ainner }
+	for _, s in ipairs(p.alphastrip) do table.insert(p.alphaobjs, s) end
+
+	local function placesv(spot)
+		local x, y = floor(spot.X), floor(spot.Y)
+		R.put(box, svouter, x - 3, y - 3)
+		R.put(box, svinner, x - 2, y - 2)
+	end
+	local function placehue(y)
+		y = floor(y)
+		R.put(box, hueouter, 146, y - 2)
+		R.put(box, hueinner, 147, y - 1)
+	end
+	local function placealpha(t)
+		local x = 10 + floor(t * (aw - 1))
+		R.put(box, aouter, x - 2, ay_alpha - 2)
+		R.put(box, ainner, x - 1, ay_alpha - 1)
+	end
+
+	local function applycolor()
+		if not p.target then return end
+		local col = hsv(p.h, p.s, p.v)
+		if p.usealpha then
+			p.target.set(col, false, p.a)
+		else
+			p.target.set(col)
+		end
+	end
+
+	function p.setalpha(state)
+		p.usealpha = state and true or false
+		for _, s in ipairs(p.alphaobjs) do
+			hidden[s] = (not p.usealpha) or nil
+		end
+		box.h = p.usealpha and (ay_alpha + ah + 10) or (ay + area + 10)
+		if box.blockhit then box.blockhit.h = box.h end
+		R.refresh(box.items)
+	end
+
+	function p.paint()
+		local col = hsv(p.h, p.s, p.v)
+		p.base.Color = hsv(p.h, 1, 1)
+		placesv(v2(10 + p.s * (area - 1), ay + (1 - p.v) * (area - 1)))
+		placehue(ay + p.h * (area - 1))
+		if p.usealpha then
+			for i, s in ipairs(p.alphastrip) do
+				s.Color = col
+				alpha[s] = (i - 1) / max(#p.alphastrip - 1, 1)
+			end
+			placealpha(p.a)
+			R.refresh(p.alphastrip)
+		end
+	end
+
+	local sv = { drag = function(rel)
+		p.s = clamp((rel.X - box.x - 10) / area, 0, 1)
+		p.v = 1 - clamp((rel.Y - box.y - ay) / area, 0, 1)
+		p.paint()
+		applycolor()
+	end }
+
+	local hue = { drag = function(rel)
+		p.h = clamp((rel.Y - box.y - ay) / area, 0, 1)
+		p.paint()
+		applycolor()
+	end }
+
+	local alpha_drag = { drag = function(rel)
+		if not p.usealpha then return end
+		p.a = clamp((rel.X - box.x - 10) / aw, 0, 1)
+		p.paint()
+		applycolor()
+	end }
+
+	R.hitbox(box, { x = 10, y = ay, w = area, h = area, hover = R.noop, click = function(rel)
+		sliding = sv
+		sv.drag(rel)
+	end })
+	R.hitbox(box, { x = 146, y = ay, w = 16, h = area, hover = R.noop, click = function(rel)
+		sliding = hue
+		hue.drag(rel)
+	end })
+	R.hitbox(box, {
+		x = 10, y = ay_alpha, w = aw, h = ah, hover = R.noop,
+		when = function() return p.usealpha end,
+		click = function(rel)
+			sliding = alpha_drag
+			alpha_drag.drag(rel)
+		end,
+	})
+
+	p.setalpha(false)
+	R.solid(box)
+	return p
+end
+
+function R.openpicker(c, rel)
+	picker = picker or R.buildpicker()
+	picker.target = c
+	picker.h, picker.s, picker.v = c.value:ToHSV()
+	picker.a = c.usealpha and (c.alpha or 1) or 1
+	picker.setalpha(c.usealpha == true)
+	R.openfloat(picker.box, rel)
+	picker.paint()
+end
+
+local tabfs = 18
+
+function R.layouttabs()
+	if #tabs == 0 then return end
+	brandaccent.Size = brandaccent.Size
+	tabminx = 18 + R.textwidth(brandaccent) + 16
+	if brandbg then R.set(brandbg, 8, 8, max(tabminx - 8, 1), barh) end
+	local n = #tabs
+	local by, bh = 8, barh
+	local left, right = tabminx, width - 8
+	local avail = max(right - left, n)
+	local base = floor(avail / n)
+	local rem = avail - base * n
+	local x = left
+
+	local gapx, gapw = left, 0
+	for i, tab in ipairs(tabs) do
+		local tw = base + (i <= rem and 1 or 0)
+		local active = tab == library.active
+		local iw = max(tw - 2, 1)
+		R.set(tab.outline, x, by, tw, bh)
+		R.set(tab.border, x + 1, by, iw, bh)
+		R.set(tab.fill, x + 1, by, iw, bh)
+
+		for _, s in ipairs({ tab.outline, tab.border, tab.fill, tab.bridge }) do
+			hidden[s] = true
+			s.Visible = false
+		end
+		if not active then
+			for _, s in ipairs({ tab.outline, tab.border, tab.fill }) do
+				hidden[s] = nil
+				s.Visible = library.open
+			end
+			tab.fill.Color = tab.hovered and tabhover or tabfill
+			tab.border.Color = tab.hovered and tabedge or edge
+			tab.outline.Color = black
+		else
+			gapx, gapw = x, tw
+		end
+		tab.label.Size = tabfs
+		R.fit(tab.label, tab.name, tw - 6)
+		R.set(tab.label, x + floor(tw / 2), by + floor((bh - tabfs) / 2))
+		tab.hitbox.x, tab.hitbox.y, tab.hitbox.w, tab.hitbox.h = x, by, tw, bh
+		x += tw
+	end
+	if topdiv_l and topdiv_r then
+		local gx = max(gapx, 8)
+		local gw = max(gapw, 0)
+		local rx = gx + gw
+		R.set(topdiv_l, 8, contenty, max(gx - 8, 0), 1)
+		R.set(topdiv_r, rx, contenty, max(width - 8 - rx, 0), 1)
+		topdiv_l.Visible = library.open and max(gx - 8, 0) > 0
+		topdiv_r.Visible = library.open and max(width - 8 - rx, 0) > 0
+	end
+end
+
+function R.painttab(tab)
+	local active = tab == library.active
+	for _, s in ipairs({ tab.outline, tab.border, tab.fill }) do
+		hidden[s] = active or nil
+		s.Visible = (not active) and library.open or false
+	end
+	hidden[tab.bridge], tab.bridge.Visible = true, false
+	if not active then
+		R.tween(tab.fill, "Color", tab.hovered and tabhover or tabfill)
+		R.tween(tab.border, "Color", tab.hovered and tabedge or edge)
+		tab.outline.Color = black
+	end
+	R.tween(tab.label, "Color", active and bright or tab.hovered and mid or dim)
+end
+
+function library.select(tab)
+	pcall(function()
+		if capture then
+			capture.release()
+		end
+	end)
+	pcall(function()
+		if popup then
+			popup.close()
+		end
+	end)
+	pcall(R.closefloat)
+	pcall(R.sethover, nil)
+	library.active = tab
+	for _, t in ipairs(tabs) do
+		pcall(R.painttab, t)
+	end
+	pcall(R.layouttabs)
+	pcall(function()
+		if not tab or not tab.columns then
+			return
+		end
+		for side, column in ipairs(tab.columns) do
+			pcall(R.layoutcolumn, column, side)
+		end
+	end)
+	-- never yield here (tab click runs on InputBegan — Wait/build crashes clients)
+	task.defer(function()
+		if library.active ~= tab then
+			return
+		end
+		pcall(R.refresh)
+		if tab and type(tab._ensure) == "function" then
+			pcall(tab._ensure)
+		end
+	end)
+end
+
+function R.contenth(box)
+	local h = box.pages and box.page and box.page.cursor or box.cursor
+	return h + (8 - elgap)
+end
+
+function R.layoutcolumn(column, side)
+	local x = 8 + pad + (side - 1) * (colw + pad)
+	local left, open = colh - pad * (#column - 1), {}
+	for _, box in ipairs(column) do
+		box.fit = nil
+		table.insert(open, box)
+	end
+	repeat
+		local share, settled = left / #open, false
+		for i = #open, 1, -1 do
+			local box = open[i]
+			local need = R.contenth(box)
+			if need <= share then
+				box.fit = need
+				left -= need
+				table.remove(open, i)
+				settled = true
+			end
+		end
+	until not settled or #open == 0
+
+	local share = #open > 0 and floor(left / #open) or 0
+	local y = top
+	for _, box in ipairs(column) do
+		local h = box.fit or share
+		R.layoutbox(box, x, y, h)
+		R.clip(box)
+		y += h + pad
+	end
+end
+
+local sides = { left = 1, right = 2 }
+
+function library.tab(name)
+	local tab = { name = name, columns = { {}, {} } }
+	tab.outline = R.square(black, 8)
+	tab.border = R.square(edge, 9)
+	tab.fill = R.square(tabfill, 10)
+	tab.bridge = R.square(tabon, 10)
+	tab.label = R.text(name, dim, 11, nil, tabfs)
+	tab.label.Center = true
+	hidden[tab.bridge], tab.bridge.Visible = true, false
+	tab.hitbox = R.hitbox(nil, {
+		x = 0, y = 0, w = 0, h = 0,
+		click = function() library.select(tab) end,
+		hover = function(state)
+			tab.hovered = state
+			R.painttab(tab)
+		end,
+	})
+	table.insert(tabs, tab)
+	R.layouttabs()
+
+	task.defer(R.layouttabs)
+	if library.active then R.painttab(tab) else library.select(tab) end
+
+	function tab.groupbox(title, side)
+		local index = sides[side] or 1
+		local column = tab.columns[index]
+		local box = R.newbox(tab, title, colw, 1)
+		box.bar = R.square(edge, 11, tab)
+		box.thumb = R.square(accent, 12, tab)
+		box.arrowUp = R.mkscrollarrow(tab)
+		box.arrowDn = R.mkscrollarrow(tab)
+		R.showscrollarrow(box.arrowUp, false)
+		R.showscrollarrow(box.arrowDn, false)
+		box.scroller = R.animated(0, function(v)
+			box.offset = v
+			for _, s in ipairs(box.items) do R.anchor(box, s) end
+			R.cliptooffset(box, v)
+			R.paintbar(box)
+			R.paintscrollhints(box)
+		end)
+
+		local function paintsubs(reflow)
+			if not box.pages then return end
+			for _, page in ipairs(box.pages) do
+				local active = page == box.page
+
+				R.tween(page.fill, "Color", active and panel or page.hovered and tabhover or tabfill)
+				R.tween(page.border, "Color", active and tabedge or edge)
+				R.tween(page.label, "Color", active and bright or page.hovered and mid or dim)
+			end
+			if reflow and box.h > 0 then R.layoutbox(box, box.x, box.y, box.h) end
+		end
+
+		function box.setsubtab(page)
+			if type(page) == "string" then
+				local found
+				for _, p in ipairs(box.pages or {}) do
+					if p.name == page then found = p break end
+				end
+				page = found
+			end
+			if not page or page == box.page or not box.pages then return end
+			if popup then popup.close() end
+			box.page.first, box.page.offset, box.page.cursor = box.first, box.offset, box.cursor
+			box.page = page
+			box.elements, box.cursor = page.elements, page.cursor
+			box.first, box.offset = page.first, page.offset
+			box.scroller.offset = page.offset
+
+			for _, p in ipairs(box.pages) do
+				local hide = p ~= page
+				for _, el in ipairs(p.elements) do
+					el.clipped = hide or nil
+					for _, s in ipairs(el.objects or {}) do
+						clipped[s] = hide or nil
+						if hide then s.Visible = false end
+					end
+				end
+			end
+			paintsubs(true)
+			R.layoutcolumn(column, index)
+			R.refresh()
+		end
+
+		function box.subtab(name)
+			box.setsubtab(name)
+			return box
+		end
+
+		if box.pages then
+			box.pagehits = {}
+			local slot = (colw - 4) / #box.pages
+			for i, page in ipairs(box.pages) do
+				box.pagehits[i] = R.hitbox(box, {
+					x = 2 + floor(slot * (i - 1)), y = 0, w = floor(slot), h = header,
+					fixed = true,
+					click = function() box.setsubtab(page) end,
+					hover = function(state)
+						page.hovered = state
+						paintsubs()
+					end,
+				})
+			end
+			paintsubs()
+		end
+
+		table.insert(column, box)
+		R.layoutcolumn(column, index)
+		for kind, build in pairs(elements) do
+			box[kind] = function(options)
+				options = options or {}
+				local element = build(box, options)
+				local function register(api, opts)
+					if not api or not api.save or (opts and opts.nosave) then return end
+					local section = box.page and box.page.name or box.title or "group"
+					local base = (opts and opts.flag) or ("%s.%s.%s"):format(name, section, (opts and opts.name) or kind)
+					local flag, n = base, 1
+					while flags[flag] do
+						n += 1
+						flag = base .. "#" .. n
+					end
+					flags[flag] = api
+				end
+				if element._parts then
+					for _, part in ipairs(element._parts) do
+						register(part.api, part.options)
+					end
+				else
+					register(element, options)
+					-- also register each toggle color swatch so configs never drop extras
+					if element.colors and not (options and options.nosave) then
+						local section = box.page and box.page.name or box.title or "group"
+						local baseName = (options and options.name) or "toggle"
+						for i, c in ipairs(element.colors) do
+							local cflag = ("%s.%s.%s.color%d"):format(name, section, baseName, i)
+							local n = 1
+							local flag = cflag
+							while flags[flag] do
+								n += 1
+								flag = cflag .. "#" .. n
+							end
+							flags[flag] = c
+						end
+					end
+				end
+				R.layoutcolumn(column, index)
+				return element
+			end
+		end
+		return box
+	end
+
+	return tab
+end
+
+function R.configpath(name)
+	return ("%s/%s.dep"):format(configfolder, name)
+end
+
+function R.themepath(name)
+	return ("%s/%s.theme"):format(themefolder, name)
+end
+
+function R.ensurefolder()
+	for _, path in ipairs({ "deprecate", configfolder, themefolder }) do
+		if not isfolder(path) then makefolder(path) end
+	end
+end
+
+function library.configs()
+	R.ensurefolder()
+	local names = {}
+	for _, file in ipairs(listfiles(configfolder)) do
+		local name = file:match("([^/\\]+)%.dep$")
+		if name then table.insert(names, name) end
+	end
+	table.sort(names)
+	return names
+end
+
+function library.themes()
+	R.ensurefolder()
+	local names = {}
+	for _, file in ipairs(listfiles(themefolder)) do
+		local name = file:match("([^/\\]+)%.theme$")
+		if name then table.insert(names, name) end
+	end
+	table.sort(names)
+	return names
+end
+
+local themepresets = {
+	{
+		name = "Default",
+		data = {
+			accent = "7990ff", bright = "dcdcdc", mid = "aaaaaa", dim = "787878",
+			black = "0a0a0a", edge = "2d2d2d", outline = "3c3c3c",
+			field = "202020", fieldhover = "2c2c2c", panel = "181818",
+			contentbg = "1e1e1e", stripe = "1e1e1e", ovstripe = "1e1e1e",
+			ovheadbg = "262626", ovheadfg = "ffffff",
+			tabfill = "121212", tabhover = "1a1a1a", tabedge = "373737",
+			brandplate = "161616", notebg = "0a0a0a", notebg_alpha = 0.5, wmbar = "373737",
+		},
+	},
+	{
+		name = "Military",
+		data = {
+			accent = "47804a", bright = "dcdcdc", mid = "5e8d61", dim = "424242",
+			black = "0d140b", edge = "172016", outline = "1d281b",
+			field = "101a10", fieldhover = "4f6049", panel = "040804",
+			contentbg = "0b140b", stripe = "151a13", ovstripe = "192018",
+			ovheadbg = "0b140b", ovheadfg = "ffffff",
+			tabfill = "0e160d", tabhover = "4f6049", tabedge = "000000",
+			brandplate = "0b140b", notebg = "0b140b", notebg_alpha = 1, wmbar = "373737",
+			gfield_t = "3b433b", gfield_b = "0d150d", ghover_t = "687663", ghover_b = "44523f",
+			gaccent_t = "7aa37d", gaccent_b = "37633a",
+		},
+	},
+	{
+		name = "ImGUI",
+		data = {
+			accent = "46baff", bright = "ffffff", mid = "c7c7c7", dim = "787878",
+			black = "0d111a", edge = "08121c", outline = "1a2436",
+			field = "0a0d1a", fieldhover = "4081ff", panel = "070b12",
+			contentbg = "030c1c", stripe = "1a1c22", ovstripe = "121722",
+			ovheadbg = "101420", ovheadfg = "70b5ff",
+			tabfill = "0c101a", tabhover = "5c84ff", tabedge = "000000",
+			brandplate = "0e1320", notebg = "0a0a0a", notebg_alpha = 0.85, wmbar = "000000",
+			gfield_t = "0c1528", gfield_b = "060a18", ghover_t = "6a9dff", ghover_b = "376fdb",
+			gaccent_t = "3b80bd", gaccent_b = "113b60",
+		},
+	},
+	{
+		name = "Industrial",
+		data = {
+			accent = "ff5400", bright = "dcdcdc", mid = "ff5400", dim = "363636",
+			black = "040404", edge = "080808", outline = "1a1a1a",
+			field = "000000", fieldhover = "ff4800", panel = "060606",
+			contentbg = "000000", stripe = "141414", ovstripe = "101010",
+			ovheadbg = "040404", ovheadfg = "ff4902",
+			tabfill = "060606", tabhover = "ff4800", tabedge = "000000",
+			brandplate = "060606", notebg = "0a0a0a", notebg_alpha = 0.9, wmbar = "373737",
+			gfield_t = "101010", gfield_b = "060606", ghover_t = "080808", ghover_b = "ff4800",
+			gaccent_t = "fb5402", gaccent_b = "4e1900",
+		},
+	},
+	{
+		name = "Midnight",
+		data = {
+			accent = "6b9eff", bright = "e8eefc", mid = "9aa8c7", dim = "5b6784",
+			black = "070a12", edge = "1a2236", outline = "2a3550",
+			field = "12182a", fieldhover = "1c2740", panel = "0c1020",
+			contentbg = "0a0e1a", stripe = "0a0e1a", ovstripe = "0c1220",
+			ovheadbg = "121a2e", ovheadfg = "dce6ff",
+			tabfill = "0a0f1c", tabhover = "162038", tabedge = "24304a",
+			brandplate = "0e1424", notebg = "070a12", notebg_alpha = 0.75, wmbar = "2a3550",
+		},
+	},
+	{
+		name = "Crimson",
+		data = {
+			accent = "c23b3b", bright = "f0e8e8", mid = "c49a9a", dim = "6e5050",
+			black = "0c0808", edge = "2a1616", outline = "3d2222",
+			field = "1a1010", fieldhover = "2a1818", panel = "140c0c",
+			contentbg = "100a0a", stripe = "100a0a", ovstripe = "140c0c",
+			ovheadbg = "1a1010", ovheadfg = "ffd0d0",
+			tabfill = "120a0a", tabhover = "241414", tabedge = "3a2020",
+			brandplate = "160c0c", notebg = "0c0808", notebg_alpha = 0.8, wmbar = "3d2222",
+		},
+	},
+	{
+		name = "Graphite",
+		data = {
+			accent = "c0c0c0", bright = "f2f2f2", mid = "a8a8a8", dim = "6a6a6a",
+			black = "0a0a0a", edge = "2a2a2a", outline = "3c3c3c",
+			field = "1a1a1a", fieldhover = "2c2c2c", panel = "121212",
+			contentbg = "101010", stripe = "101010", ovstripe = "141414",
+			ovheadbg = "1c1c1c", ovheadfg = "ffffff",
+			tabfill = "0e0e0e", tabhover = "222222", tabedge = "333333",
+			brandplate = "161616", notebg = "0a0a0a", notebg_alpha = 0.7, wmbar = "3c3c3c",
+		},
+	},
+	{
+		name = "Verdant",
+		data = {
+			accent = "2d8b6f", bright = "e4f5ef", mid = "7eb5a4", dim = "4a6e64",
+			black = "060e0c", edge = "143028", outline = "1f4338",
+			field = "0e1c18", fieldhover = "163028", panel = "0a1612",
+			contentbg = "081410", stripe = "081410", ovstripe = "0a1814",
+			ovheadbg = "10241e", ovheadfg = "d8fff2",
+			tabfill = "08120e", tabhover = "142820", tabedge = "1e3a30",
+			brandplate = "0c1a16", notebg = "060e0c", notebg_alpha = 0.8, wmbar = "1f4338",
+		},
+	},
+	{
+		name = "Amber",
+		data = {
+			accent = "e0a030", bright = "fff4e0", mid = "c4a56e", dim = "6e5a38",
+			black = "0c0a06", edge = "2a2214", outline = "3d3220",
+			field = "1a160e", fieldhover = "2a2416", panel = "14100a",
+			contentbg = "100e08", stripe = "100e08", ovstripe = "14120c",
+			ovheadbg = "1c1810", ovheadfg = "ffe7b0",
+			tabfill = "100c08", tabhover = "221c12", tabedge = "3a3020",
+			brandplate = "16120c", notebg = "0c0a06", notebg_alpha = 0.8, wmbar = "3d3220",
+		},
+	},
+	{
+		name = "Supremacy",
+		data = {
+			accent = "e02424", bright = "e8e8e8", mid = "a0a0a0", dim = "6a6a6a",
+			black = "0c0c0c", edge = "2a2a2a", outline = "3a3a3a",
+			field = "1c1c1c", fieldhover = "2a2a2a", panel = "161616",
+			contentbg = "141414", stripe = "121212", ovstripe = "141414",
+			ovheadbg = "1a1a1a", ovheadfg = "ffffff",
+			tabfill = "101010", tabhover = "222222", tabedge = "333333",
+			brandplate = "181818", notebg = "0c0c0c", notebg_alpha = 0.85, wmbar = "3a3a3a",
+			gfield_t = "242424", gfield_b = "141414", ghover_t = "323232", ghover_b = "1e1e1e",
+			gaccent_t = "ff3a3a", gaccent_b = "8a1414",
+		},
+	},
+	{
+		name = "Ocean",
+		data = {
+			accent = "2aa8c4", bright = "e2f6fa", mid = "7aadb8", dim = "4a6e76",
+			black = "061014", edge = "143038", outline = "1e4450",
+			field = "0e1e24", fieldhover = "163038", panel = "0a181e",
+			contentbg = "08141a", stripe = "08141a", ovstripe = "0a1a20",
+			ovheadbg = "102830", ovheadfg = "d8f4fa",
+			tabfill = "061218", tabhover = "142830", tabedge = "1e3c48",
+			brandplate = "0c1c22", notebg = "061014", notebg_alpha = 0.8, wmbar = "1e4450",
+		},
+	},
+	{
+		name = "Obsidian",
+		data = {
+			accent = "d4a84a", bright = "f5edd8", mid = "b8a67a", dim = "6e6450",
+			black = "050505", edge = "1c1a14", outline = "2e2a20",
+			field = "12100c", fieldhover = "221e16", panel = "0c0c0a",
+			contentbg = "080808", stripe = "080808", ovstripe = "0c0c0a",
+			ovheadbg = "14120e", ovheadfg = "ffe9b8",
+			tabfill = "0a0a08", tabhover = "1a1812", tabedge = "2a261c",
+			brandplate = "10100c", notebg = "050505", notebg_alpha = 0.85, wmbar = "2e2a20",
+			gaccent_t = "e8c06a", gaccent_b = "8a6820",
+		},
+	},
+	{
+		name = "Frost",
+		data = {
+			accent = "9ec8e8", bright = "f4f8fc", mid = "a8bcc8", dim = "607088",
+			black = "0a1016", edge = "1c2a38", outline = "2c3e50",
+			field = "121c28", fieldhover = "1c2c3c", panel = "0e1620",
+			contentbg = "0c141c", stripe = "0c141c", ovstripe = "101820",
+			ovheadbg = "162030", ovheadfg = "e8f2fa",
+			tabfill = "0a1218", tabhover = "182838", tabedge = "283848",
+			brandplate = "101820", notebg = "0a1016", notebg_alpha = 0.75, wmbar = "2c3e50",
+		},
+	},
+	{
+		name = "Neon",
+		data = {
+			accent = "39ff14", bright = "e8ffe8", mid = "7ac86a", dim = "4a6e48",
+			black = "050805", edge = "142814", outline = "1e3c1e",
+			field = "0c180c", fieldhover = "183018", panel = "081208",
+			contentbg = "060e06", stripe = "060e06", ovstripe = "081408",
+			ovheadbg = "102010", ovheadfg = "c8ffb8",
+			tabfill = "060e06", tabhover = "142814", tabedge = "1e3a1e",
+			brandplate = "0a160a", notebg = "050805", notebg_alpha = 0.85, wmbar = "1e3c1e",
+			gaccent_t = "6aff40", gaccent_b = "1e8a10",
+		},
+	},
+	{
+		name = "Copper",
+		data = {
+			accent = "c8723a", bright = "f5e8dc", mid = "b89070", dim = "6e5644",
+			black = "0e0a08", edge = "2a1e16", outline = "3c2c20",
+			field = "1a1410", fieldhover = "2a2018", panel = "14100c",
+			contentbg = "100c0a", stripe = "100c0a", ovstripe = "14100c",
+			ovheadbg = "1c1610", ovheadfg = "ffe0c8",
+			tabfill = "100c08", tabhover = "221a14", tabedge = "34281c",
+			brandplate = "16120e", notebg = "0e0a08", notebg_alpha = 0.8, wmbar = "3c2c20",
+		},
+	},
+	{
+		name = "Arctic",
+		data = {
+			accent = "5ec4d4", bright = "eef8fa", mid = "8ab0b8", dim = "4e7078",
+			black = "081214", edge = "1a3038", outline = "284850",
+			field = "101c22", fieldhover = "1a2e36", panel = "0c181c",
+			contentbg = "0a1418", stripe = "0a1418", ovstripe = "0e1a1e",
+			ovheadbg = "142428", ovheadfg = "d8f4f8",
+			tabfill = "081214", tabhover = "162428", tabedge = "243840",
+			brandplate = "0e1a1e", notebg = "081214", notebg_alpha = 0.75, wmbar = "284850",
+		},
+	},
+	{
+		name = "Ember",
+		data = {
+			accent = "ff5a1f", bright = "ffe8dc", mid = "c48a6a", dim = "6e4a38",
+			black = "0c0806", edge = "2a1810", outline = "3c2418",
+			field = "1a100c", fieldhover = "2a1a12", panel = "140c0a",
+			contentbg = "100a08", stripe = "100a08", ovstripe = "140e0a",
+			ovheadbg = "1c120c", ovheadfg = "ffd0b8",
+			tabfill = "100a08", tabhover = "221610", tabedge = "382418",
+			brandplate = "16100c", notebg = "0c0806", notebg_alpha = 0.85, wmbar = "3c2418",
+			gaccent_t = "ff7a3a", gaccent_b = "a02800",
+		},
+	},
+	{
+		name = "Slate",
+		data = {
+			accent = "6a9aaa", bright = "e6eef0", mid = "8aa0a8", dim = "5a6e74",
+			black = "0a0e10", edge = "1e2a30", outline = "2e3e46",
+			field = "141c22", fieldhover = "1e2a32", panel = "10161a",
+			contentbg = "0e1418", stripe = "0e1418", ovstripe = "12181c",
+			ovheadbg = "182028", ovheadfg = "dce8ec",
+			tabfill = "0c1216", tabhover = "1a242c", tabedge = "2a3840",
+			brandplate = "12181c", notebg = "0a0e10", notebg_alpha = 0.75, wmbar = "2e3e46",
+		},
+	},
+	{
+		name = "Noir",
+		data = {
+			accent = "ffffff", bright = "f0f0f0", mid = "a0a0a0", dim = "585858",
+			black = "000000", edge = "1a1a1a", outline = "2a2a2a",
+			field = "101010", fieldhover = "222222", panel = "0a0a0a",
+			contentbg = "050505", stripe = "050505", ovstripe = "080808",
+			ovheadbg = "121212", ovheadfg = "ffffff",
+			tabfill = "080808", tabhover = "1a1a1a", tabedge = "282828",
+			brandplate = "0e0e0e", notebg = "000000", notebg_alpha = 0.9, wmbar = "2a2a2a",
+			gfield_t = "1a1a1a", gfield_b = "0a0a0a", ghover_t = "2c2c2c", ghover_b = "141414",
+			gaccent_t = "ffffff", gaccent_b = "888888",
+		},
+	},
+}
+
+function R.defaultmetapath()
+	return "deprecate/theme_default.json"
+end
+
+function R.presetnames()
+	local names = {}
+	for _, preset in ipairs(themepresets) do
+		table.insert(names, preset.name)
+	end
+	return names
+end
+
+function R.findpreset(name)
+	if not name then return nil end
+	for _, preset in ipairs(themepresets) do
+		if preset.name == name then return preset end
+	end
+end
+
+function library.presets()
+	return R.presetnames()
+end
+
+function library.loadpreset(name, silent)
+	local preset = R.findpreset(name)
+	assert(preset, "unknown preset")
+	library.applytheme(preset.data, true, true)
+	if not silent then
+		library.notify({ { "preset ", "bright" }, { name, "accent" } })
+	end
+end
+
+function library.getdefault()
+	R.ensurefolder()
+	if not isfile(R.defaultmetapath()) then return nil end
+	local ok, data = pcall(function()
+		return http:JSONDecode(readfile(R.defaultmetapath()))
+	end)
+	if ok and type(data) == "table" and data.name and (data.source == "preset" or data.source == "custom") then
+		return data
+	end
+end
+
+function library.setdefault(source, name)
+	assert(source == "preset" or source == "custom", "invalid default source")
+	assert(type(name) == "string" and name ~= "", "select a theme first")
+	R.ensurefolder()
+	local payload
+	if source == "preset" then
+		local preset = R.findpreset(name)
+		assert(preset, "unknown preset")
+		payload = preset.data
+	else
+		assert(isfile(R.themepath(name)), "theme file missing")
+		local ok, data = pcall(function()
+			return http:JSONDecode(readfile(R.themepath(name)))
+		end)
+		assert(ok and type(data) == "table", "failed to read theme")
+		payload = data
+	end
+	writefile(R.defaultmetapath(), http:JSONEncode({
+		source = source,
+		name = name,
+		theme = payload,
+	}))
+	library.notify({
+		{ "default ", "bright" },
+		{ name, "accent" },
+	})
+end
+
+function library.removedefault()
+	R.ensurefolder()
+	local path = R.defaultmetapath()
+	if isfile(path) then
+		delfile(path)
+		library.notify({ { "default ", "bright" }, { "removed", "accent" } })
+	else
+		library.notify({ { "no default ", "bright" }, { "set", "accent" } })
+	end
+end
+
+function library.applydefault(silent)
+	local meta = library.getdefault()
+	if not meta then return false end
+	local data = meta.theme
+	if type(data) ~= "table" and meta.source == "preset" then
+		local preset = R.findpreset(meta.name)
+		data = preset and preset.data
+	elseif type(data) ~= "table" and meta.source == "custom" then
+		local ok, file = pcall(function()
+			return http:JSONDecode(readfile(R.themepath(meta.name)))
+		end)
+		data = ok and file or nil
+	end
+	if type(data) ~= "table" then return false end
+	library.applytheme(data, true, true)
+	if not silent then
+		library.notify({ { "default ", "bright" }, { meta.name, "accent" } })
+	end
+	return true
+end
+
+function library.save(name, done)
+	task.spawn(function()
+		local ok, err = pcall(function()
+			R.ensurefolder()
+			local data, n = {}, 0
+			for flag, element in pairs(flags) do
+				if element and type(element.save) == "function" then
+					local sok, saved = pcall(element.save)
+					if sok then
+						data[flag] = saved
+					end
+				end
+				n += 1
+				if n % 6 == 0 then
+					run.RenderStepped:Wait()
+				end
+			end
+			writefile(R.configpath(name), http:JSONEncode(data))
+		end)
+		if ok then
+			library.notify({ { "saved ", "bright" }, { name, "accent" } })
+			if done then
+				done()
+			end
+		else
+			library.notify({ { "save ", "bright" }, { "failed", "accent" } })
+			warn("deprecate.pro: " .. tostring(err))
+		end
+	end)
+end
+
+function library.load(name, done)
+	local ok, data = pcall(function()
+		return http:JSONDecode(readfile(R.configpath(name)))
+	end)
+	if not ok then
+		library.notify({ { "load ", "bright" }, { "failed", "accent" } })
+		return warn("deprecate.pro: " .. tostring(data))
+	end
+	local queue = {}
+	for flag, value in pairs(data) do
+		local element = flags[flag]
+		if element and type(element.load) == "function" then
+			table.insert(queue, { element, value })
+		end
+	end
+	task.spawn(function()
+		for i = 1, #queue do
+			pcall(queue[i][1].load, queue[i][2])
+			if i % 6 == 0 then
+				run.RenderStepped:Wait()
+			end
+		end
+		library.notify({ { "loaded ", "bright" }, { name, "accent" } })
+		if done then
+			done()
+		end
+	end)
+end
+
+function library.delete(name)
+	delfile(R.configpath(name))
+end
+	end
+	setup_elements()
+end
+
+local watermarkloop, playerlistloop, hudloop, lastfps
+local watermark
+local overlaydrag
+
+do
+	local function setup_overlays()
+
+function R.overlay(kind, props)
+	local s = Drawing.new(kind)
+	for k, v in pairs(props) do s[k] = v end
+	s.Visible = false
+	table.insert(overlays, s)
+	return s
+end
+
+function R.ovtext(str, color, z, face)
+	return R.overlay("Text", { Text = str, Size = fs, Font = face or font, Color = color, Outline = true, ZIndex = z or 310 })
+end
+
+function R.ovframecolors()
+	local mid = outline:Lerp(black, 0.35)
+	return { black, outline, mid, outline, black, ovstripe }
+end
+
+function R.patternenabled(where)
+	return pattern_on == true and pattern_targets[where] == true
+end
+
+function R.patterncolor(base)
+	if pattern_style == "skeet" then
+		return base:Lerp(black, 0.65)
+	end
+	-- keep hatch readable on solid fill of the same base (incl. pitch black)
+	local v = typeof(base) == "Color3" and ((base.R + base.G + base.B) / 3) or 0
+	if v < 0.22 then
+		return base:Lerp(rgb(255, 255, 255), 0.16)
+	end
+	return base:Lerp(black, 0.2)
+end
+
+function R.patternsegs(style, px, py, pw, ph)
+	local segs = {}
+	if pw < 2 or ph < 2 then return segs end
+	local function add(a, b)
+		table.insert(segs, { a, b })
+	end
+	if style == "skeet" then
+		local colw, segh, gap = 2, 4, 1
+		local col = 0
+		for x = px, px + pw - 1, colw do
+			local y0 = py + ((col % 2 == 1) and floor(segh / 2) or 0)
+			for y = y0, py + ph - segh, segh + gap do
+				add(v2(x, y), v2(x, min(y + segh - 1, py + ph - 1)))
+			end
+			col += 1
+		end
+	elseif style == "grid" then
+		local step = 4
+		for x = px, px + pw, step do
+			add(v2(x, py), v2(x, py + ph))
+		end
+		for y = py, py + ph, step do
+			add(v2(px, y), v2(px + pw, y))
+		end
+	else
+		for d = 4, pw + ph - 1, 4 do
+			add(
+				d <= pw and v2(px + d, py) or v2(px + pw, py + d - pw),
+				d <= ph and v2(px, py + d) or v2(px + d - ph, py + ph)
+			)
+		end
+	end
+	return segs
+end
+
+function R.applymainpattern()
+	local px, py, pw, ph = 8, 8, width - 16, height - 16
+	local segs = R.patternenabled("main ui") and R.patternsegs(pattern_style, px, py, pw, ph) or {}
+	local color = R.patterncolor(stripe)
+	while #hatchlines < #segs do
+		table.insert(hatchlines, R.add("Line", { Color = color, Thickness = 1, ZIndex = 7 }))
+	end
+	for i, s in ipairs(hatchlines) do
+		local seg = segs[i]
+		if seg then
+			offsets[s] = { seg[1], seg[2] }
+			R.place(s)
+			s.Color = color
+			alpha[s] = stripe_alpha
+			hidden[s] = nil
+			s.Visible = library.open and R.shown(s) or false
+			if s.Visible then s.Transparency = stripe_alpha end
+		else
+			hidden[s] = true
+			s.Visible = false
+		end
+	end
+end
+
+function R.ovframe(z)
+	local colors = R.ovframecolors()
+	local list = { hatch = {} }
+	for i, color in ipairs(colors) do
+		list[i] = R.overlay("Square", { Filled = true, Color = color, ZIndex = z + i })
+	end
+	return list
+end
+
+function R.setdrawalpha(s, a)
+	if not s then return end
+	a = clamp(tonumber(a) or 1, 0, 1)
+	alpha[s] = a
+	local tw = tweens[s]
+	if tw then tw.Transparency = nil end
+	-- nested chrome squares sit under fills; write Transparency whenever the
+	-- object is on-screen so opaque backings cannot hide outline/bg alpha
+	if s.Visible then
+		s.Transparency = a
+	end
+end
+
+function R.applymainalphas()
+	-- 1-4 outline stack (outer black + outline rings), 5-6 + hatch = ui background
+	R.setdrawalpha(winlayers[1], outline_alpha)
+	R.setdrawalpha(winlayers[2], outline_alpha)
+	R.setdrawalpha(winlayers[3], outline_alpha)
+	R.setdrawalpha(winlayers[4], outline_alpha)
+	R.setdrawalpha(winlayers[5], stripe_alpha)
+	R.setdrawalpha(winlayers[6], stripe_alpha)
+	for _, s in ipairs(hatchlines) do
+		R.setdrawalpha(s, stripe_alpha)
+	end
+end
+
+function R.applyoverlayalphas(frame)
+	if not frame then return end
+	R.setdrawalpha(frame[1], outline_alpha)
+	R.setdrawalpha(frame[2], outline_alpha)
+	R.setdrawalpha(frame[3], outline_alpha)
+	R.setdrawalpha(frame[4], outline_alpha)
+	R.setdrawalpha(frame[5], ovstripe_alpha)
+	R.setdrawalpha(frame[6], ovstripe_alpha)
+	for _, s in ipairs(frame.hatch or {}) do
+		R.setdrawalpha(s, ovstripe_alpha)
+	end
+end
+
+function R.paintovframe(frame)
+	if not frame then return end
+	local colors = R.ovframecolors()
+	for i, color in ipairs(colors) do
+		if frame[i] then frame[i].Color = color end
+	end
+	R.applyoverlayalphas(frame)
+	local color = R.patterncolor(ovstripe)
+	for _, s in ipairs(frame.hatch or {}) do
+		s.Color = color
+	end
+end
+
+local ovlayers = { 0, 1, 2, 6, 7, 8 }
+local OV_INSET = 8
+local ovpanels = {}
+
+function R.placeovhatch(frame, pos, w, h, headh)
+	frame.hatch = frame.hatch or {}
+	headh = headh or 0
+	local px, py = pos.X + OV_INSET, pos.Y + OV_INSET + headh
+	local pw, ph = max(w - OV_INSET * 2, 0), max(h - OV_INSET * 2 - headh, 0)
+	-- above content fill so patterns stay visible/updatable
+	local z = (frame[6] and frame[6].ZIndex or 306) + 1
+	local segs = R.patternenabled("overlays") and R.patternsegs(pattern_style, px, py, pw, ph) or {}
+	local color = R.patterncolor(ovstripe)
+	while #frame.hatch < #segs do
+		table.insert(frame.hatch, R.overlay("Line", { Color = color, Thickness = 1, ZIndex = z }))
+	end
+	local live = frame[6] and frame[6].Visible
+	local a = live and ovstripe_alpha or 0
+	for i, s in ipairs(frame.hatch) do
+		local seg = segs[i]
+		s.ZIndex = z
+		if seg then
+			s.From, s.To = seg[1], seg[2]
+			s.Color = color
+			alpha[s] = ovstripe_alpha
+			s.Transparency = a
+			s.Visible = live and true or false
+		else
+			s.Visible = false
+		end
+	end
+end
+
+function R.placeoverlayheader(panel, px, py, w)
+	if not panel.headbg then return end
+	local x, y = px + OV_INSET, py + OV_INSET
+	local inner = max((w or panel.w or 0) - OV_INSET * 2, 0)
+	panel.headbg.Position = v2(x, y)
+	panel.headbg.Size = v2(inner, header)
+	panel.headbg.Color = ovheadbg
+	if panel.header then
+		panel.header.Position = v2(x + floor(inner / 2), y + floor((header - fs) / 2))
+		panel.header.Color = ovheadfg
+	end
+	if panel.divider then
+		panel.divider.Position = v2(x, y + header - 1)
+		panel.divider.Size = v2(inner, 1)
+		panel.divider.Color = edge
+	end
+end
+
+function R.placeoverlaychrome(panel, px, py, rebuildhatch)
+	px, py = floor(px), floor(py)
+	local w, h = panel.w or 0, panel.h or 0
+	local frame = panel.frame
+	local headh = panel.headbg and header or 0
+	if frame then
+		for i, d in ipairs(ovlayers) do
+			frame[i].Position = v2(px + d, py + d)
+			frame[i].Size = v2(max(w - d * 2, 0), max(h - d * 2, 0))
+		end
+		if rebuildhatch ~= false then
+			R.placeovhatch(frame, v2(px, py), w, h, headh)
+		end
+	end
+	R.placeoverlayheader(panel, px, py, w)
+	panel._pix = v2(px, py)
+end
+
+function R.placeframe(frame, pos, w, h)
+	local px, py = floor(pos.X), floor(pos.Y)
+	for i, d in ipairs(ovlayers) do
+		frame[i].Position = v2(px + d, py + d)
+		frame[i].Size = v2(max(w - d * 2, 0), max(h - d * 2, 0))
+	end
+	R.placeovhatch(frame, v2(px, py), w, h, 0)
+end
+
+function R.panelpos(panel)
+	if panel._pix then return panel._pix end
+	local pos = panel.pos or v2()
+	return v2(floor(pos.X), floor(pos.Y))
+end
+
+function R.refreshpanelpattern(panel)
+	if not (panel and panel.frame and panel.w and panel.h) then return end
+	local pos = R.panelpos(panel)
+	R.placeovhatch(panel.frame, pos, panel.w, panel.h, panel.headbg and header or 0)
+	R.placeoverlayheader(panel, pos.X, pos.Y, panel.w)
+end
+
+function R.applypatterns()
+	R.applymainpattern()
+	for _, panel in ipairs(ovpanels) do
+		R.refreshpanelpattern(panel)
+	end
+end
+
+function R.paintpatterncolors()
+	local main = R.patterncolor(stripe)
+	for _, s in ipairs(hatchlines) do
+		s.Color = main
+	end
+	local ov = R.patterncolor(ovstripe)
+	for _, panel in ipairs(ovpanels) do
+		local hatch = panel.frame and panel.frame.hatch
+		if hatch then
+			for _, s in ipairs(hatch) do
+				s.Color = ov
+			end
+		end
+	end
+end
+
+function R.paintbrand()
+	if brandaccent then brandaccent.Color = accent end
+	if brand then brand.Color = bright end
+	if brandbg then brandbg.Color = brandplate end
+	if watermark then
+		if watermark.title then watermark.title.Color = accent end
+		if watermark.cover then watermark.cover.Color = bright end
+		for _, s in ipairs(watermark.bars or {}) do s.Color = wmbar end
+	end
+end
+
+function R.paintmainchrome()
+	local chrome = R.ovframecolors()
+	-- main window uses stripe for fill; chrome helpers still provide border stack
+	chrome[6] = stripe
+	for i, color in ipairs(chrome) do
+		if winlayers[i] then winlayers[i].Color = color end
+	end
+	R.applymainalphas()
+	R.paintbrand()
+	if topdiv_l then topdiv_l.Color = black end
+	if topdiv_r then topdiv_r.Color = black end
+	R.paintpatterncolors()
+end
+
+function R.paintoverlaychrome()
+	for _, panel in ipairs(ovpanels) do
+		if panel.frame then R.paintovframe(panel.frame) end
+		if panel.headbg then
+			panel.headbg.Color = ovheadbg
+			if panel.header then panel.header.Color = ovheadfg end
+			if panel.divider then panel.divider.Color = edge end
+		end
+	end
+	R.paintbrand()
+end
+
+function R.showlist(list, state)
+	for _, s in ipairs(list) do
+		local shown = alpha[s]
+		if shown == nil then shown = 1 end
+		if state and not s.Visible then s.Transparency, s.Visible = 0, true end
+		R.tween(s, "Transparency", state and shown or 0)
+	end
+	if not state then
+		task.delay(speed, function()
+			for _, s in ipairs(list) do
+				if s.Transparency < 0.05 then s.Visible = false end
+			end
+		end)
+	end
+end
+
+function R.showovframe(frame, state)
+	R.showlist(frame, state)
+	if frame.hatch then
+		R.showlist(frame.hatch, state)
+	end
+end
+
+local notes = {}
+local notemargin, notegap = 14, 6
+local NOTE_PAD = 10
+
+function R.parsenotify(content)
+	local segments = {}
+	if type(content) == "string" then
+		table.insert(segments, { content, "bright" })
+	elseif type(content) == "table" then
+		for _, part in ipairs(content) do
+			if type(part) == "string" then
+				table.insert(segments, { part, "bright" })
+			elseif type(part) == "table" and part[1] then
+				table.insert(segments, { tostring(part[1]), part[2] or "bright" })
+			end
+		end
+	end
+	if #segments == 0 then table.insert(segments, { "notify", "bright" }) end
+	return segments
+end
+
+function R.notealpha(note, a)
+	a = clamp(a, 0, 1)
+	note.alpha = a
+	if note.body then note.body.Transparency = notebg_alpha * a end
+	if note.bar then note.bar.Transparency = a end
+	for _, label in ipairs(note.labels) do
+		label.Transparency = a
+	end
+end
+
+function R.placenote(note)
+	if note.body then
+		note.body.Position = v2(note.x, note.y)
+		note.body.Size = v2(note.w, note.h)
+		note.body.Color = notebg
+	end
+	if note.bar then
+		note.bar.Position = v2(note.x + note.w - 2, note.y)
+		note.bar.Size = v2(2, note.h)
+		note.bar.Color = accent
+	end
+	local tx = note.x + NOTE_PAD
+	local ty = note.y + floor((note.h - fs) / 2)
+	for _, label in ipairs(note.labels) do
+		label.Position = v2(tx, ty)
+		tx += R.textwidth(label)
+	end
+end
+
+function R.paintnote(note)
+	for i, label in ipairs(note.labels) do
+		label.Color = R.themecolor(note.roles[i] or "bright")
+	end
+	if note.body then note.body.Color = notebg end
+	if note.bar then note.bar.Color = accent end
+	R.notealpha(note, note.alpha or 1)
+	R.placenote(note)
+end
+
+function R.stacknotes()
+	local vp = camera.ViewportSize
+	local bottom = vp.Y - notemargin
+	for i = #notes, 1, -1 do
+		local note = notes[i]
+		local target = bottom - note.h
+		bottom = target - notegap
+		R.tween(note.stack, "y", target, 0.2)
+	end
+end
+
+function R.dropnote(s)
+	pcall(function() s:Remove() end)
+	for i = #overlays, 1, -1 do
+		if overlays[i] == s then table.remove(overlays, i) end
+	end
+end
+
+function R.notedrawings(note)
+	local list = {}
+	if note.body then table.insert(list, note.body) end
+	if note.bar then table.insert(list, note.bar) end
+	for _, s in ipairs(note.labels) do table.insert(list, s) end
+	return list
+end
+
+function library.notify(content, duration)
+	duration = duration or 2.5
+	local parts = R.parsenotify(content)
+	local note = {
+		labels = {},
+		roles = {},
+		x = 0,
+		y = 0,
+		w = 0,
+		h = fs + 10,
+		alpha = 0,
+		alive = true,
+	}
+
+	local textw = 0
+	for _, part in ipairs(parts) do
+		local label = R.overlay("Text", {
+			Text = part[1],
+			Size = fs,
+			Font = font,
+			Color = R.themecolor(part[2]),
+			Outline = true,
+			ZIndex = 520,
+		})
+		label.Visible = true
+		label.Transparency = 0
+		table.insert(note.labels, label)
+		table.insert(note.roles, part[2])
+		textw += R.textwidth(label)
+	end
+
+	note.w = textw + NOTE_PAD * 2 + 4
+
+	note.body = R.overlay("Square", { Filled = true, Color = notebg, ZIndex = 510 })
+	note.body.Visible = true
+	note.body.Transparency = 0
+	note.bar = R.overlay("Square", { Filled = true, Color = accent, ZIndex = 511 })
+	note.bar.Visible = true
+	note.bar.Transparency = 0
+
+	local vp = camera.ViewportSize
+	note.x = vp.X + 8
+	note.y = vp.Y - notemargin - note.h
+	note.slide = R.animated(note.x, function(x)
+		note.x = x
+		R.placenote(note)
+	end)
+	note.stack = R.animated(note.y, function(y)
+		note.y = y
+		R.placenote(note)
+	end)
+	note.fade = R.animated(0, function(a)
+		R.notealpha(note, a)
+	end)
+	table.insert(notes, note)
+	R.placenote(note)
+	R.notealpha(note, 0)
+	R.stacknotes()
+	R.tween(note.fade, "a", 1, 0.2)
+	R.tween(note.slide, "x", vp.X - note.w - notemargin, 0.22)
+
+	task.delay(duration, function()
+		if not note.alive then return end
+		note.alive = false
+		R.tween(note.slide, "x", camera.ViewportSize.X + 12, 0.22)
+		R.tween(note.fade, "a", 0, 0.2)
+		task.delay(0.28, function()
+			for i, n in ipairs(notes) do
+				if n == note then table.remove(notes, i) break end
+			end
+			for _, s in ipairs(R.notedrawings(note)) do R.dropnote(s) end
+			R.stacknotes()
+		end)
+	end)
+end
+
+function R.ovdefault(panel, kind)
+	local vp = camera.ViewportSize
+	local inset = guiservice:GetGuiInset().Y
+	if kind == "watermark" then
+		return v2(floor((vp.X - max(panel.w, 1)) / 2), inset + 10)
+	end
+	if kind == "playerlist" then
+		return v2(max(vp.X - max(panel.w, 160) - 10, 0), floor((vp.Y - max(panel.h, 40)) / 2))
+	end
+	if kind == "hud" then
+		return v2(floor((vp.X - max(panel.w, 1)) / 2), max(vp.Y - max(panel.h, 40) - 24, inset + 10))
+	end
+
+	return v2(10, floor((vp.Y - max(panel.h, 40)) / 2))
+end
+
+watermark = {
+	on = false,
+	parts = { "fps", "time" },
+	w = 160,
+	h = fs + 20,
+	frame = R.ovframe(300),
+	title = R.ovtext("deprecate.pro", accent),
+	cover = R.ovtext("deprecate", bright),
+	segments = {},
+	bars = {},
+}
+watermark.pos = R.ovdefault(watermark, "watermark")
+table.insert(ovpanels, watermark)
+local watermarktexts = { watermark.title, watermark.cover }
+watermarkloop, lastfps = nil, 0
+
+function R.sizewatermark(w)
+	local oldx = watermark.pos.X
+	watermark.w = floor(w)
+	if not watermark.moved then
+		watermark.pos = R.ovdefault(watermark, "watermark")
+		local dx = watermark.pos.X - oldx
+		if dx ~= 0 then
+			for _, s in ipairs(watermarktexts) do
+				s.Position = v2(s.Position.X + dx, s.Position.Y)
+			end
+			for _, s in ipairs(watermark.bars) do
+				s.Position = v2(s.Position.X + dx, s.Position.Y)
+			end
+		end
+	end
+	R.placeframe(watermark.frame, watermark.pos, watermark.w, watermark.h)
+end
+
+	local wmwidth = R.animated(watermark.w, R.sizewatermark)
+R.sizewatermark(watermark.w)
+
+function R.wmsegment()
+	local s = R.ovtext("", bright)
+	table.insert(watermark.segments, s)
+	table.insert(watermarktexts, s)
+	return s
+end
+
+function R.wmbar()
+	local s = R.overlay("Square", { Filled = true, Color = wmbar, ZIndex = 310 })
+	table.insert(watermark.bars, s)
+	return s
+end
+
+function R.wmpicked(name)
+	return table.find(watermark.parts, name) ~= nil
+end
+
+function R.paintwatermark(fps)
+	lastfps = fps
+	if watermark.title then watermark.title.Color = accent end
+	if watermark.cover then watermark.cover.Color = bright end
+	for _, s in ipairs(watermark.bars or {}) do s.Color = wmbar end
+
+	local pieces = {}
+	local function push(str, color)
+		table.insert(pieces, { "text", str, color })
+	end
+	local function sep()
+		table.insert(pieces, { "bar" })
+	end
+
+	if R.wmpicked("fps") then
+		sep()
+		push(tostring(fps) .. " ", bright)
+		push("fps", accent)
+	end
+	if R.wmpicked("time") then
+		sep()
+		push(("%d:%s "):format(tonumber(os.date("%I")), os.date("%M")), bright)
+		push(os.date("%p"):lower(), accent)
+	end
+	if R.wmpicked("username") then
+		sep()
+		local lp = players.LocalPlayer
+		push(lp and lp.Name or "?", bright)
+	end
+	if R.wmpicked("region") then
+		sep()
+		push((locale.RobloxLocaleId or locale.SystemLocaleId or "unknown"):lower(), bright)
+	end
+	if R.wmpicked("game") then
+		sep()
+		push(gamename, bright)
+	end
+
+	local texts, bars = 0, 0
+	for _, piece in ipairs(pieces) do
+		if piece[1] == "text" then texts += 1 else bars += 1 end
+	end
+	while #watermark.segments < texts do R.wmsegment() end
+	while #watermark.bars < bars do R.wmbar() end
+
+	local ti, bi = 0, 0
+	for _, piece in ipairs(pieces) do
+		if piece[1] == "text" then
+			ti += 1
+			local s = watermark.segments[ti]
+			s.Text, s.Color = piece[2], piece[3]
+			s.Visible = watermark.on
+			if watermark.on then s.Transparency = 1 end
+		else
+			bi += 1
+			local s = watermark.bars[bi]
+			s.Visible = watermark.on
+			if watermark.on then s.Transparency = 1 end
+		end
+	end
+	for i = ti + 1, #watermark.segments do watermark.segments[i].Visible = false end
+	for i = bi + 1, #watermark.bars do watermark.bars[i].Visible = false end
+
+	local inset, pad, barw, bargap = 8, 6, 1, 6
+	local barh = max(fs - 4, 8)
+	local target = inset * 2 + pad * 2 + ceil(R.textwidth(watermark.title))
+	ti, bi = 0, 0
+	for _, piece in ipairs(pieces) do
+		if piece[1] == "text" then
+			ti += 1
+			target += ceil(R.textwidth(watermark.segments[ti]))
+		else
+			target += bargap * 2 + barw
+		end
+	end
+	target = max(floor(target), 120)
+	-- grow instantly so new parts never sit under the right outline; shrink can ease
+	if target > watermark.w or not watermark.sized then
+		watermark.sized = true
+		wmwidth.width = target
+		R.sizewatermark(target)
+	elseif target < watermark.w then
+		R.tween(wmwidth, "width", target, 0.2)
+	end
+
+	local px, py = floor(watermark.pos.X), floor(watermark.pos.Y)
+	local x = px + inset + pad
+	local y = py + floor((watermark.h - fs) / 2)
+	local bary = py + floor((watermark.h - barh) / 2)
+	watermark.title.Position = v2(x, y)
+	watermark.cover.Position = v2(x, y)
+	x += R.textwidth(watermark.title)
+	ti, bi = 0, 0
+	for _, piece in ipairs(pieces) do
+		if piece[1] == "text" then
+			ti += 1
+			local s = watermark.segments[ti]
+			s.Position = v2(x, y)
+			x += R.textwidth(s)
+		else
+			bi += 1
+			x += bargap
+			local s = watermark.bars[bi]
+			s.Position = v2(x, bary)
+			s.Size = v2(barw, barh)
+			x += barw + bargap
+		end
+	end
+	watermark._pix = v2(floor(watermark.pos.X), floor(watermark.pos.Y))
+end
+
+function library.watermark(state)
+	if watermarkloop then watermarkloop:Disconnect() end
+	watermarkloop, watermark.on = nil, state
+	R.showovframe(watermark.frame, state)
+	R.showlist(watermarktexts, state)
+	R.showlist(watermark.bars, state)
+	if not state then return end
+	local frames, last = 0, clock()
+	R.paintwatermark(0)
+	watermarkloop = run.RenderStepped:Connect(function()
+		frames += 1
+		local now = clock()
+		if overlaydrag and overlaydrag.panel == watermark then return end
+		if now - last >= 2 then
+			R.paintwatermark(floor(frames / (now - last) + 0.5))
+			frames, last = 0, now
+		end
+	end)
+end
+
+function library.watermarkparts(parts)
+	watermark.parts = parts or {}
+	if watermark.on then R.paintwatermark(lastfps) end
+end
+
+local hotkeys = {
+	on = false,
+	w = 168,
+	h = header + fs + 28,
+	frame = R.ovframe(320),
+	headbg = R.overlay("Square", { Filled = true, Color = ovheadbg, ZIndex = 329 }),
+	header = R.ovtext("Hotkeys", ovheadfg, 330),
+	divider = R.overlay("Square", { Filled = true, Color = edge, ZIndex = 330 }),
+	rows = {},
+}
+hotkeys.pos = R.ovdefault(hotkeys, "hotkeys")
+table.insert(ovpanels, hotkeys)
+hotkeys.header.Center = true
+local hotkeydrawings = { hotkeys.headbg, hotkeys.header, hotkeys.divider }
+R.placeframe(hotkeys.frame, hotkeys.pos, hotkeys.w, hotkeys.h)
+
+function R.hkrow()
+	local row = {
+		label = R.ovtext("", dim, 331),
+		key = R.ovtext("", dim, 331),
+	}
+	table.insert(hotkeydrawings, row.label)
+	table.insert(hotkeydrawings, row.key)
+	table.insert(hotkeys.rows, row)
+	return row
+end
+
+function R.painthotkeys()
+	local inset, pad, rowh = 8, 8, fs + 6
+	local binds = {}
+	for _, t in ipairs(toggles) do
+		if t.key then table.insert(binds, t) end
+	end
+	local count = max(#binds, 1)
+	for i = #hotkeys.rows + 1, count do R.hkrow() end
+
+	local innerw = 80
+	local probe = hotkeys.rows[1]
+	for _, t in ipairs(binds) do
+		probe.label.Text = t.name
+		probe.key.Text = "[" .. t.key.Name:lower() .. "]"
+		innerw = max(innerw, R.textwidth(probe.label) + R.textwidth(probe.key) + 24)
+	end
+
+	hotkeys.w = inset * 2 + pad * 2 + innerw + 30
+	hotkeys.h = inset * 2 + header + 4 + (count - 1) * rowh + fs + 6
+	if not hotkeys.moved then hotkeys.pos = R.ovdefault(hotkeys, "hotkeys") end
+	local px, py = floor(hotkeys.pos.X), floor(hotkeys.pos.Y)
+	R.placeoverlaychrome(hotkeys, px, py, true)
+
+	local x = px + inset
+	local y = py + inset
+	local inner = hotkeys.w - inset * 2
+
+	for i, row in ipairs(hotkeys.rows) do
+		local t = binds[i]
+		local ry = y + header + 4 + (i - 1) * rowh
+		if t then
+			R.fit(row.label, t.name, inner - pad * 2 - R.textwidth(probe.key) - 8)
+			row.key.Text = "[" .. t.key.Name:lower() .. "]"
+			row.label.Position = v2(x + pad, ry)
+			row.key.Position = v2(x + inner - pad - R.textwidth(row.key), ry)
+
+			local on = t.value
+			R.tween(row.label, "Color", on and bright or dim)
+			R.tween(row.key, "Color", on and accent or dim)
+			row.label.Visible, row.key.Visible = hotkeys.on, hotkeys.on
+			if hotkeys.on then row.label.Transparency, row.key.Transparency = 1, 1 end
+		elseif #binds == 0 and i == 1 then
+			row.label.Text, row.key.Text = "none", ""
+			row.label.Color = dim
+			row.label.Position = v2(x + pad, ry)
+			row.label.Visible, row.key.Visible = hotkeys.on, false
+			if hotkeys.on then row.label.Transparency = 1 end
+		else
+			row.label.Visible, row.key.Visible = false, false
+		end
+	end
+end
+
+function R.refreshhotkeys()
+	if hotkeys.on then R.painthotkeys() end
+end
+
+function library.hotkeys(state)
+	hotkeys.on = state
+	if state then R.painthotkeys() end
+	R.showovframe(hotkeys.frame, state)
+	R.showlist(hotkeydrawings, state)
+	if not state then
+		for _, row in ipairs(hotkeys.rows) do
+			row.label.Visible, row.key.Visible = false, false
+		end
+	end
+end
+
+local playerlist = {
+	on = false,
+	w = 148,
+	h = header + fs + 28,
+	frame = R.ovframe(340),
+	headbg = R.overlay("Square", { Filled = true, Color = ovheadbg, ZIndex = 349 }),
+	header = R.ovtext("Players", ovheadfg, 350),
+	divider = R.overlay("Square", { Filled = true, Color = edge, ZIndex = 350 }),
+	rows = {},
+}
+playerlist.pos = R.ovdefault(playerlist, "playerlist")
+table.insert(ovpanels, playerlist)
+playerlist.header.Center = true
+local playerlistdrawings = { playerlist.headbg, playerlist.header, playerlist.divider }
+R.placeframe(playerlist.frame, playerlist.pos, playerlist.w, playerlist.h)
+
+function R.plrow()
+	local row = {
+		label = R.ovtext("", dim, 351),
+		info = R.ovtext("", dim, 351),
+		full = "",
+		maxw = 80,
+		marquee = false,
+	}
+	table.insert(playerlistdrawings, row.label)
+	table.insert(playerlistdrawings, row.info)
+	table.insert(playerlist.rows, row)
+	return row
+end
+
+function R.tickplmarquee()
+	if not playerlist.on then return end
+	local now = clock()
+	local scrollT, holdT, fadeT = 2.4, 0.55, 0.4
+	local total = scrollT + holdT + fadeT * 2
+	for _, row in ipairs(playerlist.rows) do
+		if not row.marquee or not row.label.Visible or row.full == "" then
+
+		else
+			local t = now % total
+			local full = row.full
+			if t < scrollT then
+				local frac = t / scrollT
+				local start = 1 + floor(frac * max(#full - 1, 0))
+				R.fit(row.label, full:sub(start), row.maxw)
+				row.label.Transparency = 1
+			elseif t < scrollT + holdT then
+				R.fit(row.label, full, row.maxw, true)
+				row.label.Transparency = 1
+			elseif t < scrollT + holdT + fadeT then
+				R.fit(row.label, full, row.maxw, true)
+				row.label.Transparency = 1 - (t - scrollT - holdT) / fadeT
+			else
+				R.fit(row.label, full, row.maxw)
+				row.label.Transparency = (t - scrollT - holdT - fadeT) / fadeT
+			end
+		end
+	end
+end
+
+function R.paintplayerlist()
+	local inset, pad, rowh = 8, 6, fs + 6
+	local list = players:GetPlayers()
+	local localplr = players.LocalPlayer
+	table.sort(list, function(a, b)
+		if a == localplr then return true end
+		if b == localplr then return false end
+		return a.Name:lower() < b.Name:lower()
+	end)
+	local count = max(#list, 1)
+	for i = #playerlist.rows + 1, count do R.plrow() end
+
+	playerlist.w = 148
+	playerlist.h = inset * 2 + header + 4 + (count - 1) * rowh + fs + 6
+	if not playerlist.moved then playerlist.pos = R.ovdefault(playerlist, "playerlist") end
+	local px, py = floor(playerlist.pos.X), floor(playerlist.pos.Y)
+	R.placeoverlaychrome(playerlist, px, py, true)
+
+	local x = px + inset
+	local y = py + inset
+	local inner = playerlist.w - inset * 2
+
+	for i, row in ipairs(playerlist.rows) do
+		local plr = list[i]
+		local ry = y + header + 4 + (i - 1) * rowh
+		if plr then
+			local localplr = players.LocalPlayer
+			local name = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
+			row.info.Text = plr == localplr and "you" or ""
+			local infoW = row.info.Text ~= "" and (R.textwidth(row.info) + 8) or 0
+			row.full = name
+			row.maxw = max(inner - pad * 2 - infoW, 40)
+			row.label.Text = name
+			row.marquee = R.textwidth(row.label) > row.maxw
+			if not row.marquee then
+				R.fit(row.label, name, row.maxw)
+			else
+				R.fit(row.label, name, row.maxw)
+			end
+			row.label.Position = v2(x + pad, ry)
+			row.info.Position = v2(x + inner - pad - R.textwidth(row.info), ry)
+			local mine = plr == localplr
+			row.label.Color = mine and accent or bright
+			row.info.Color = dim
+			row.label.Visible, row.info.Visible = playerlist.on, playerlist.on and row.info.Text ~= ""
+			if playerlist.on then
+				row.label.Transparency = 1
+				if row.info.Visible then row.info.Transparency = 1 end
+			end
+		elseif #list == 0 and i == 1 then
+			row.full, row.marquee = "", false
+			row.label.Text, row.info.Text = "none", ""
+			row.label.Color = dim
+			row.label.Position = v2(x + pad, ry)
+			row.label.Visible, row.info.Visible = playerlist.on, false
+			if playerlist.on then row.label.Transparency = 1 end
+		else
+			row.full, row.marquee = "", false
+			row.label.Visible, row.info.Visible = false, false
+		end
+	end
+end
+
+function library.playerlist(state)
+	if playerlistloop then playerlistloop:Disconnect() end
+	playerlistloop, playerlist.on = nil, state
+	if state then R.paintplayerlist() end
+	R.showovframe(playerlist.frame, state)
+	R.showlist(playerlistdrawings, state)
+	if not state then
+		for _, row in ipairs(playerlist.rows) do
+			row.label.Visible, row.info.Visible = false, false
+			row.marquee = false
+		end
+		return
+	end
+	local last = 0
+	playerlistloop = run.RenderStepped:Connect(function()
+		local now = clock()
+		if not playerlist.on then return end
+
+		if not (overlaydrag and overlaydrag.panel == playerlist) and now - last >= 0.5 then
+			last = now
+			R.paintplayerlist()
+		end
+		R.tickplmarquee()
+	end)
+end
+
+local HUDBORDER, HUDPAD, HUDRIGHT = 8, 10, 14
+local hud = {
+	on = false,
+	w = 288,
+	h = 58,
+	frame = R.ovframe(360),
+	avatarbg = R.overlay("Square", { Filled = true, Color = rgb(18, 18, 18), ZIndex = 369 }),
+	name = R.ovtext("", accent, 371),
+	user = R.ovtext("", dim, 371),
+	dist = R.ovtext("", dim, 371),
+	hp = R.ovtext("", dim, 371),
+	full = "",
+	maxw = 160,
+	marquee = false,
+	userid = nil,
+	thumb = nil,
+
+	alpha = 1,
+	phase = nil,
+	fadet0 = 0,
+	fadedur = 0.18,
+
+	showhp = nil,
+	showft = nil,
+	targethp = 0,
+	targetft = 0,
+	disphp = nil,
+	dispft = nil,
+}
+
+hud.name.Size = fs + 4
+hud.hp.Size = fs + 4
+hud.user.Size = fs
+hud.dist.Size = fs
+do
+	local ok, img = pcall(function()
+		return R.overlay("Image", { ZIndex = 370 })
+	end)
+	if ok and img then
+		hud.avatar = img
+	else
+		hud.avatar = nil
+		hud.avatarfallback = R.ovtext("?", dim, 370)
+		hud.avatarfallback.Center = true
+	end
+end
+hud.pos = R.ovdefault(hud, "hud")
+table.insert(ovpanels, hud)
+local huddrawings = { hud.avatarbg, hud.name, hud.user, hud.dist, hud.hp }
+if hud.avatar then table.insert(huddrawings, hud.avatar) end
+if hud.avatarfallback then table.insert(huddrawings, hud.avatarfallback) end
+R.placeframe(hud.frame, hud.pos, hud.w, hud.h)
+
+local thumbcache = {}
+
+function R.fetchthumb(userId)
+	if thumbcache[userId] ~= nil then return thumbcache[userId] end
+	thumbcache[userId] = false
+	task.spawn(function()
+		local bytes
+		pcall(function()
+			local body = game:HttpGet(
+				"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds="
+					.. tostring(userId)
+					.. "&size=48x48&format=Png&isCircular=false"
+			)
+			local decoded = http:JSONDecode(body)
+			local url = decoded and decoded.data and decoded.data[1] and decoded.data[1].imageUrl
+			if url then bytes = game:HttpGet(url) end
+		end)
+		thumbcache[userId] = bytes or false
+		if hud.on and hud.userid == userId then R.applyhudthumb(userId) end
+	end)
+	return thumbcache[userId]
+end
+
+function R.applyhudthumb(userId)
+	if not hud.avatar then return end
+	local data = thumbcache[userId]
+	if type(data) ~= "string" or #data == 0 then
+		hud.thumb = nil
+		hud.avatar.Visible = false
+		return
+	end
+	local ok = pcall(function()
+		hud.avatar.Data = data
+	end)
+	hud.thumb = ok and data or nil
+	if hud.on then
+		hud.avatar.Visible = ok and true or false
+		if ok then hud.avatar.Transparency = hud.alpha or 1 end
+	end
+end
+
+function R.closestplayer()
+	local me = players.LocalPlayer
+	local root = me and me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+	if not root then return nil, nil end
+	local best, bestd
+	for _, plr in ipairs(players:GetPlayers()) do
+		if plr ~= me then
+			local part = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+			if part then
+				local d = (part.Position - root.Position).Magnitude
+				if not bestd or d < bestd then
+					best, bestd = plr, d
+				end
+			end
+		end
+	end
+	return best, bestd
+end
+
+function R.applyhudalpha(a)
+	a = clamp(a, 0, 1)
+	hud.alpha = a
+
+	if not (hud.marquee and not hud.phase) then
+		hud.name.Transparency = a
+	end
+	if hud.user.Visible then hud.user.Transparency = a end
+	if hud.dist.Visible then hud.dist.Transparency = a end
+	if hud.hp.Visible then hud.hp.Transparency = a end
+	if hud.avatar and hud.avatar.Visible then hud.avatar.Transparency = a end
+	if hud.avatarfallback and hud.avatarfallback.Visible then hud.avatarfallback.Transparency = a end
+	hud.avatarbg.Transparency = a
+end
+
+function R.tickhudmarquee()
+	if not hud.on or not hud.marquee or hud.full == "" or hud.phase then return end
+	local now = clock()
+	local scrollT, holdT, fadeT = 2.4, 0.55, 0.4
+	local total = scrollT + holdT + fadeT * 2
+	local t = now % total
+	local full = hud.full
+	local base = hud.alpha or 1
+	if t < scrollT then
+		local frac = t / scrollT
+		local start = 1 + floor(frac * max(#full - 1, 0))
+		R.fit(hud.name, full:sub(start), hud.maxw)
+		hud.name.Transparency = base
+	elseif t < scrollT + holdT then
+		R.fit(hud.name, full, hud.maxw, true)
+		hud.name.Transparency = base
+	elseif t < scrollT + holdT + fadeT then
+		R.fit(hud.name, full, hud.maxw, true)
+		hud.name.Transparency = base * (1 - (t - scrollT - holdT) / fadeT)
+	else
+		R.fit(hud.name, full, hud.maxw)
+		hud.name.Transparency = base * ((t - scrollT - holdT - fadeT) / fadeT)
+	end
+end
+
+function R.hudavsize()
+
+	return hud.h - HUDBORDER * 2
+end
+
+function R.layouthud()
+	local namesz, usersz, rowgap = fs + 4, fs, 2
+	local px, py = floor(hud.pos.X), floor(hud.pos.Y)
+	hud._pix = v2(px, py)
+	R.placeframe(hud.frame, v2(px, py), hud.w, hud.h)
+	local av = R.hudavsize()
+	local ax, ay = px + HUDBORDER, py + HUDBORDER
+	local inner = hud.w - HUDBORDER * 2
+	hud.avatarbg.Position = v2(ax, ay)
+	hud.avatarbg.Size = v2(av, av)
+	if hud.avatar then
+		hud.avatar.Position = v2(ax, ay)
+		pcall(function() hud.avatar.Size = v2(av, av) end)
+	end
+	if hud.avatarfallback then
+		hud.avatarfallback.Position = v2(ax + floor(av / 2), ay + floor((av - usersz) / 2))
+	end
+	local tx = ax + av + HUDPAD
+	local hpw = hud.hp.Visible and R.textwidth(hud.hp) or 0
+	local distw = hud.dist.Visible and R.textwidth(hud.dist) or 0
+	local rightw = max(hpw, distw)
+	hud.maxw = max(inner - av - HUDPAD - (rightw > 0 and rightw + HUDPAD or 0) - HUDRIGHT, 40)
+	local block = namesz + rowgap + usersz
+	local namey = ay + floor((av - block) / 2)
+	local usery = namey + namesz + rowgap
+	local rightx = px + hud.w - HUDBORDER - HUDRIGHT
+	hud.name.Position = v2(tx, namey)
+	hud.user.Position = v2(tx, usery)
+	if hud.hp.Visible then
+		hud.hp.Position = v2(rightx - hpw, namey)
+	end
+	if hud.dist.Visible then
+		hud.dist.Position = v2(rightx - distw, usery)
+	end
+end
+
+function R.applyhudstats(snap)
+	local hp = floor((hud.showhp or 0) + 0.5)
+	local ft = floor((hud.showft or 0) + 0.5)
+	if not snap and hp == hud.disphp and ft == hud.dispft then return false end
+	hud.disphp, hud.dispft = hp, ft
+	hud.hp.Text = string.format("%d hp", hp)
+	hud.dist.Text = string.format("%d ft", ft)
+	return true
+end
+
+function R.tickhudstats(dt)
+	if hud.showhp == nil then return end
+	local k = 1 - math.exp(-12 * max(dt, 0))
+	hud.showhp = R.lerp(hud.showhp, hud.targethp, k)
+	hud.showft = R.lerp(hud.showft, hud.targetft, k)
+
+	if math.abs(hud.showhp - hud.targethp) < 0.05 then hud.showhp = hud.targethp end
+	if math.abs(hud.showft - hud.targetft) < 0.05 then hud.showft = hud.targetft end
+	if R.applyhudstats() then R.layouthud() end
+end
+
+function R.sethudtargets(plr, dist, snap)
+	if not plr then
+		hud.targethp, hud.targetft = 0, 0
+		if snap then
+			hud.showhp, hud.showft = nil, nil
+			hud.disphp, hud.dispft = nil, nil
+		end
+		return
+	end
+	local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+	local hp = hum and floor(hum.Health + 0.5) or 0
+	local ft = floor((dist or 0) * 0.28 * 3.28084 + 0.5)
+	hud.targethp, hud.targetft = hp, ft
+	if snap or hud.showhp == nil then
+		hud.showhp, hud.showft = hp, ft
+		R.applyhudstats(true)
+	end
+end
+
+function R.fillhud(plr, dist, snapstats)
+	local av = R.hudavsize()
+	hud.name.Size, hud.hp.Size = fs + 4, fs + 4
+	hud.user.Size, hud.dist.Size = fs, fs
+
+	if plr then
+		local display = plr.DisplayName ~= "" and plr.DisplayName or plr.Name
+		local changed = hud.userid ~= plr.UserId
+		R.sethudtargets(plr, dist, snapstats or changed)
+		hud.maxw = max(hud.w - HUDBORDER * 2 - av - HUDPAD - HUDRIGHT - 48, 40)
+		hud.full = display
+		hud.name.Text = display
+		hud.marquee = R.textwidth(hud.name) > hud.maxw
+		if not hud.marquee then R.fit(hud.name, display, hud.maxw) end
+		hud.user.Text = "@" .. plr.Name
+		R.fit(hud.user, hud.user.Text, hud.maxw)
+		hud.name.Color, hud.user.Color = accent, dim
+		hud.hp.Color, hud.dist.Color = dim, dim
+		if changed then
+			hud.userid = plr.UserId
+			R.fetchthumb(plr.UserId)
+			R.applyhudthumb(plr.UserId)
+		end
+		if hud.avatarfallback then
+			hud.avatarfallback.Text = display:sub(1, 1):upper()
+			hud.avatarfallback.Visible = hud.on and not (hud.avatar and hud.thumb)
+		end
+		hud.user.Visible = hud.on
+		hud.dist.Visible = hud.on
+		hud.hp.Visible = hud.on
+	else
+		hud.full, hud.marquee, hud.userid = "", false, nil
+		R.sethudtargets(nil, nil, true)
+		hud.name.Text, hud.user.Text, hud.dist.Text, hud.hp.Text = "no players nearby", "", "", ""
+		hud.name.Color = dim
+		hud.maxw = max(hud.w - HUDBORDER * 2 - av - HUDPAD, 40)
+		R.fit(hud.name, hud.name.Text, hud.maxw)
+		if hud.avatar then hud.avatar.Visible = false end
+		if hud.avatarfallback then
+			hud.avatarfallback.Text = "-"
+			hud.avatarfallback.Visible = hud.on
+		end
+		hud.user.Visible, hud.dist.Visible, hud.hp.Visible = false, false, false
+	end
+
+	hud.name.Visible = hud.on
+	hud.avatarbg.Visible = hud.on
+end
+
+function R.painthud(dt)
+	hud.w, hud.h = 288, 58
+	if not hud.moved then hud.pos = R.ovdefault(hud, "hud") end
+
+	local plr, dist = R.closestplayer()
+	local targetId = plr and plr.UserId or false
+	local showId = hud.userid or false
+	local now = clock()
+	local dur = hud.fadedur
+
+	if not hud.phase then
+		if targetId ~= showId then
+			if showId == false then
+				R.fillhud(plr, dist, true)
+				hud.phase, hud.fadet0 = "in", now
+				R.applyhudalpha(0)
+			else
+				hud.phase, hud.fadet0 = "out", now
+			end
+		else
+			R.fillhud(plr, dist, false)
+			R.applyhudalpha(1)
+		end
+	elseif hud.phase == "out" then
+		local a = 1 - (now - hud.fadet0) / dur
+		if a <= 0 then
+			R.fillhud(plr, dist, true)
+			hud.phase, hud.fadet0 = "in", now
+			R.applyhudalpha(0)
+		else
+			R.applyhudalpha(a)
+		end
+	elseif hud.phase == "in" then
+		local a = (now - hud.fadet0) / dur
+		if targetId ~= (hud.userid or false) then
+			local cur = clamp(a, 0, 1)
+			hud.phase = "out"
+			hud.fadet0 = now - (1 - cur) * dur
+			R.applyhudalpha(cur)
+		elseif a >= 1 then
+			hud.phase = nil
+			R.fillhud(plr, dist, false)
+			R.applyhudalpha(1)
+		else
+			R.fillhud(plr, dist, false)
+			R.applyhudalpha(a)
+		end
+	end
+
+	if dt and hud.showhp ~= nil and not hud.phase then
+		R.tickhudstats(dt)
+	elseif hud.phase == "in" and dt and hud.showhp ~= nil then
+		R.tickhudstats(dt)
+	end
+
+	R.layouthud()
+end
+
+function library.hud(state)
+	if hudloop then hudloop:Disconnect() end
+	hudloop, hud.on = nil, state
+	hud.phase, hud.alpha, hud.fadet0 = nil, 1, 0
+	hud.showhp, hud.showft, hud.disphp, hud.dispft = nil, nil, nil, nil
+	if state then R.painthud(0) end
+	R.showovframe(hud.frame, state)
+	R.showlist(huddrawings, state)
+	if not state then
+		hud.marquee = false
+		hud.name.Visible, hud.user.Visible, hud.dist.Visible, hud.hp.Visible = false, false, false, false
+		hud.avatarbg.Visible = false
+		if hud.avatar then hud.avatar.Visible = false end
+		if hud.avatarfallback then hud.avatarfallback.Visible = false end
+		return
+	end
+	hudloop = run.RenderStepped:Connect(function(dt)
+		if not hud.on then return end
+		if not (overlaydrag and overlaydrag.panel == hud) then
+			R.painthud(dt)
+		else
+			R.layouthud()
+		end
+		R.tickhudmarquee()
+	end)
+end
+
+function R.hitoverlay(m)
+	if not library.open then return end
+	if hotkeys.on and R.inside(m, hotkeys.pos.X, hotkeys.pos.Y, hotkeys.w, hotkeys.h) then
+		return hotkeys
+	end
+	if playerlist.on and R.inside(m, playerlist.pos.X, playerlist.pos.Y, playerlist.w, playerlist.h) then
+		return playerlist
+	end
+	if hud.on and R.inside(m, hud.pos.X, hud.pos.Y, hud.w, hud.h) then
+		return hud
+	end
+	if watermark.on and watermark.w > 0 and R.inside(m, watermark.pos.X, watermark.pos.Y, watermark.w, watermark.h) then
+		return watermark
+	end
+end
+
+function R.clampoverlay(panel, pos, snap)
+	local vp = camera.ViewportSize
+	local x = clamp(pos.X, 0, max(vp.X - panel.w, 0))
+	local y = clamp(pos.Y, 0, max(vp.Y - panel.h, 0))
+	if snap ~= false then
+		x, y = floor(x), floor(y)
+	end
+	return v2(x, y)
+end
+
+function R.shiftpanel(panel, drawings)
+	local pix = v2(floor(panel.pos.X), floor(panel.pos.Y))
+	local prev = panel._pix
+	if not prev then
+		panel._pix = pix
+		return false
+	end
+	local dx, dy = pix.X - prev.X, pix.Y - prev.Y
+	if dx == 0 and dy == 0 then return true end
+	local d = v2(dx, dy)
+	-- chrome + header always absolute so they never rip from the outline
+	R.placeoverlaychrome(panel, pix.X, pix.Y, false)
+	for _, s in ipairs((panel.frame and panel.frame.hatch) or {}) do
+		if s.From and s.To then
+			s.From, s.To = s.From + d, s.To + d
+		end
+	end
+	for _, s in ipairs(drawings or {}) do
+		if s == panel.headbg or s == panel.header or s == panel.divider then
+			-- already snapped with chrome
+		elseif s.Position then
+			s.Position = s.Position + d
+		elseif s.From and s.To then
+			s.From, s.To = s.From + d, s.To + d
+		end
+	end
+	return true
+end
+
+function R.moveoverlay(panel, pos, snap)
+	panel.pos = R.clampoverlay(panel, pos, snap)
+	panel.moved = true
+	if panel == watermark then
+		local list = {}
+		for _, s in ipairs(watermarktexts) do table.insert(list, s) end
+		for _, s in ipairs(watermark.bars) do table.insert(list, s) end
+		if not R.shiftpanel(panel, list) then R.paintwatermark(lastfps) end
+	elseif panel == playerlist then
+		if not R.shiftpanel(panel, playerlistdrawings) then R.paintplayerlist() end
+	elseif panel == hud then
+		if not R.shiftpanel(panel, huddrawings) then R.layouthud() end
+	else
+		if not R.shiftpanel(panel, hotkeydrawings) then R.painthotkeys() end
+	end
+end
+
+local overlay_theme_keys = {
+	ovstripe = true, ovstripe_alpha = true, ovheadbg = true, ovheadfg = true,
+	accent = true, bright = true, mid = true, dim = true,
+	edge = true, black = true, outline = true, outline_alpha = true, wmbar = true,
+}
+-- color-only: update chrome/header tints without full overlay relayout
+local overlay_color_only_keys = {
+	ovstripe = true, ovstripe_alpha = true, ovheadbg = true, ovheadfg = true,
+	edge = true, black = true, outline = true, outline_alpha = true, wmbar = true,
+}
+local main_bg_keys = { stripe = true, stripe_alpha = true, contentbg = true }
+local overlay_bg_keys = { ovstripe = true, ovstripe_alpha = true }
+
+function R.paintmaingroupoxes()
+	for _, tab in ipairs(tabs) do
+		if R.painttab then R.painttab(tab) end
+		for _, column in ipairs(tab.columns or {}) do
+			for _, box in ipairs(column) do
+				local f = box.frame
+				if f then
+					if f[1] then f[1].Color = black end
+					if f[2] then f[2].Color = edge end
+					if f[3] then f[3].Color = panel end
+					if box.pages then
+						for _, page in ipairs(box.pages) do
+							if page.outline then page.outline.Color = black end
+							if page.border then page.border.Color = edge end
+							local active = page == box.page
+							if page.fill then
+								page.fill.Color = active and panel or (page.hovered and tabhover or tabfill)
+							end
+							if page.label then
+								page.label.Color = active and bright or (page.hovered and mid or dim)
+							end
+						end
+						if box.div_l then box.div_l.Color = edge end
+						if box.div_r then box.div_r.Color = edge end
+					elseif f[4] then
+						pcall(function() f[4].Color = edge end)
+					end
+					if R.hastext(f[5]) then
+						f[5].Color = bright
+					end
+				end
+				if box.thumb and R.paintbar then R.paintbar(box) end
+				if R.paintscrollhints then R.paintscrollhints(box) end
+			end
+		end
+	end
+end
+
+function R.syncthemepickers()
+	local cur = R.gettheme()
+	for key, picker in pairs(themepickers) do
+		local value = cur[key]
+		if picker and value and picker.set then
+			if picker.usealpha and picker.alphakey then
+				picker.set(value, true, cur[picker.alphakey] or 1)
+			else
+				picker.set(value, true)
+			end
+		end
+	end
+end
+
+function R.refreshtheme(opts)
+	opts = opts or {}
+	local keys = opts.keys
+	local full = not keys
+	local touch_main = full
+	local touch_overlay = full
+	local touch_bg_main = full
+	local touch_bg_overlay = full
+	local touch_boxes = full
+	local touch_notes = full
+	local touch_grads = full
+
+	local overlay_needs_content = false
+	local touch_brand = full
+	if keys then
+		touch_main, touch_overlay, touch_bg_main, touch_bg_overlay, touch_boxes, touch_notes, touch_grads = false, false, false, false, false, false, false
+		touch_brand = false
+		for key in pairs(keys) do
+			if main_bg_keys[key] then touch_bg_main, touch_main = true, true end
+			if overlay_bg_keys[key] then touch_bg_overlay, touch_overlay = true, true end
+			if overlay_theme_keys[key] then
+				touch_overlay = true
+				if not overlay_color_only_keys[key] then overlay_needs_content = true end
+			end
+			if key == "notebg" or key == "notebg_alpha" or key == "accent" then touch_notes = true end
+			if key == "accent" or key == "bright" or key == "brandplate" or key == "black"
+				or key == "outline" or key == "outline_alpha" then
+				touch_main = true
+			end
+			if key == "accent" or key == "bright" or key == "brandplate" or key == "wmbar" then
+				touch_brand = true
+			end
+			if key == "panel" or key == "edge" or key == "black" or key == "tabfill" or key == "tabhover" or key == "tabedge"
+				or key == "bright" or key == "mid" or key == "dim" or key == "accent" then
+				touch_boxes = true
+			end
+			if key == "field" or key == "fieldhover" or key == "accent"
+				or key == "gfield_t" or key == "gfield_b" or key == "ghover_t" or key == "ghover_b"
+				or key == "gaccent_t" or key == "gaccent_b" then
+				touch_grads = true
+			end
+		end
+	else
+		overlay_needs_content = true
+	end
+
+	if touch_main or touch_bg_main then
+		if R.paintmainchrome then
+			R.paintmainchrome()
+		else
+			if winlayers[6] then winlayers[6].Color = stripe end
+			for _, s in ipairs(hatchlines) do s.Color = R.patterncolor(stripe) end
+			if R.paintbrand then R.paintbrand() end
+		end
+	elseif touch_brand and R.paintbrand then
+		R.paintbrand()
+	end
+
+	if touch_boxes then R.paintmaingroupoxes() end
+
+	if touch_overlay or touch_bg_overlay then
+		if R.paintoverlaychrome then R.paintoverlaychrome() end
+		-- only relayout live overlays when content colors need it (not header/bg tints)
+		if overlay_needs_content then
+			if watermark and watermark.on and R.paintwatermark then R.paintwatermark(lastfps) end
+			if hotkeys and hotkeys.on and R.painthotkeys then R.painthotkeys() end
+			if playerlist and playerlist.on and R.paintplayerlist then R.paintplayerlist() end
+			if hud and hud.on and R.painthud then R.painthud(0) end
+		end
+	end
+
+	if touch_notes then
+		for _, note in ipairs(notes) do
+			if note.alive and R.paintnote then R.paintnote(note) end
+		end
+	end
+
+	if touch_grads then
+		for _, s in ipairs(sliders) do
+			if s.retheme then pcall(s.retheme) end
+		end
+	end
+
+	if opts.syncpickers then R.syncthemepickers() end
+end
+
+function library.applytheme(data, silent, syncpickers)
+	data = data or {}
+	R.setthemelocals(data)
+	themesnap = R.gettheme()
+
+	local keys = {}
+	local count = 0
+	for key in pairs(data) do
+		keys[key] = true
+		count += 1
+	end
+
+	local full = not (count > 0 and count <= 2 and not syncpickers)
+	-- finish any in-flight color tweens so old theme hues can't linger
+	if R.cleartweens then R.cleartweens() end
+
+	-- single-key picker edits: targeted paint, never rebuild hatch geometry
+	if not full then
+		R.refreshtheme({ keys = keys })
+	else
+		R.refreshtheme({ syncpickers = syncpickers == true or silent ~= true })
+		for _, t in ipairs(tabs) do
+			if R.painttab then R.painttab(t) end
+		end
+	end
+
+	-- snap every control to live theme colors (dropdown rows, hovers, grads, etc.)
+	if R.firetheme then R.firetheme() end
+	for _, hb in ipairs(hitboxes) do
+		if hb.hover then pcall(hb.hover, false) end
+	end
+	if R.cleartweens then R.cleartweens() end
+	if R.firetheme then R.firetheme() end -- second pass after hover snaps
+	-- re-assert chrome alphas last so hover/tween snaps cannot leave opaque backings
+	if R.applymainalphas then R.applymainalphas() end
+	if R.applyoverlayalphas then
+		for _, panel in ipairs(ovpanels) do
+			if panel.frame then R.applyoverlayalphas(panel.frame) end
+		end
+	end
+
+	if not silent then
+		library.notify({ { "theme ", "bright" }, { "applied", "accent" } })
+	end
+end
+
+function library.savetheme(name, done)
+	task.spawn(function()
+		local ok, err = pcall(function()
+			R.ensurefolder()
+			local data = {}
+			for key, value in pairs(R.gettheme()) do
+				if typeof(value) == "Color3" then
+					data[key] = value:ToHex()
+				elseif type(value) == "number" then
+					data[key] = value
+				end
+			end
+			writefile(R.themepath(name), http:JSONEncode(data))
+		end)
+		if ok then
+			library.notify({ { "theme saved ", "bright" }, { name, "accent" } })
+			if done then done() end
+		else
+			library.notify({ { "theme save ", "bright" }, { "failed", "accent" } })
+			warn("deprecate.pro: " .. tostring(err))
+		end
+	end)
+end
+
+function library.loadtheme(name, done)
+	local ok, data = pcall(function()
+		return http:JSONDecode(readfile(R.themepath(name)))
+	end)
+	if not ok then
+		library.notify({ { "theme load ", "bright" }, { "failed", "accent" } })
+		return warn("deprecate.pro: " .. tostring(data))
+	end
+	library.applytheme(data, true, true)
+	library.notify({ { "theme loaded ", "bright" }, { name, "accent" } })
+	if done then done() end
+end
+
+function library.deletetheme(name)
+	delfile(R.themepath(name))
+end
+
+function library.configtab(name)
+	local tab = library.tab(name or "configs")
+
+	local settings = tab.groupbox("settings", "left")
+	local mark = settings.toggle({ name = "watermark", default = false, callback = library.watermark })
+	settings.dropdown({
+		name = "show",
+		multi = true,
+		options = { "fps", "time", "username", "region", "game" },
+		default = { "fps", "time" },
+		callback = library.watermarkparts,
+	})
+	local keysui = settings.toggle({ name = "hotkeys", default = false, callback = library.hotkeys })
+	local plist = settings.toggle({ name = "playerlist", default = false, callback = library.playerlist })
+	local hudui = settings.toggle({ name = "hud", default = false, callback = library.hud })
+	settings.dropdown({
+		name = "ui font",
+		options = R.fontnames(),
+		default = fontname,
+		callback = function(v)
+			library.setfont(v)
+		end,
+	})
+	library.watermark(mark.value)
+	library.hotkeys(keysui.value)
+	library.playerlist(plist.value)
+	library.hud(hudui.value)
+
+	local theme = tab.groupbox("theme", "left")
+
+	local function attempt(fn)
+		local ok, err = pcall(fn)
+		if not ok then
+			library.notify(tostring(err):gsub("^.-:%s*", ""))
+			warn("deprecate.pro: " .. tostring(err))
+		end
+	end
+
+	-- Light theme controls only at create-time (safe). Color pickers load async
+	-- after the tab is shown — never inside the click/select stack.
+	local presetnames = R.presetnames()
+	local def = library.getdefault()
+	local presetdefault = "Default"
+	if def and def.source == "preset" and table.find(presetnames, def.name) then
+		presetdefault = def.name
+	end
+	local presetlist = theme.dropdown({
+		name = "presets",
+		options = presetnames,
+		default = presetdefault,
+		nosave = true,
+	})
+	theme.button({
+		name = "load preset",
+		callback = function()
+			attempt(function()
+				assert(presetlist.value, "select a preset first")
+				library.loadpreset(presetlist.value)
+			end)
+		end,
+	})
+	theme.buttonrow({
+		{
+			name = "set as default",
+			callback = function()
+				attempt(function()
+					assert(presetlist.value, "select a preset first")
+					library.setdefault("preset", presetlist.value)
+				end)
+			end,
+		},
+		{
+			name = "remove default",
+			callback = function()
+				attempt(function()
+					library.removedefault()
+				end)
+			end,
+		},
+	})
+
+	local themename = theme.textbox({ name = "name", placeholder = "theme name", nosave = true })
+	local themelist = theme.dropdown({ name = "themes", nosave = true })
+
+	local function refreshthemes()
+		attempt(function()
+			themelist.setoptions(library.themes())
+		end)
+	end
+
+	local function selectedtheme()
+		assert(themelist.value, "select a theme first")
+		return themelist.value
+	end
+
+	theme.button({
+		name = "create",
+		callback = function()
+			attempt(function()
+				local cfg = themename.value:gsub("[^%w%s%-_]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+				assert(cfg ~= "", "enter a theme name")
+				assert(not isfile(R.themepath(cfg)), "theme already exists, use save")
+				library.savetheme(cfg, function()
+					refreshthemes()
+					themelist.set(cfg)
+				end)
+			end)
+		end,
+	})
+	theme.buttonrow({
+		{
+			name = "load",
+			callback = function()
+				attempt(function()
+					library.loadtheme(selectedtheme())
+				end)
+			end,
+		},
+		{
+			name = "save",
+			callback = function()
+				attempt(function()
+					library.savetheme(selectedtheme())
+				end)
+			end,
+		},
+	})
+	theme.buttonrow({
+		{ name = "refresh", callback = refreshthemes },
+		{
+			name = "delete",
+			callback = function()
+				attempt(function()
+					local cfg = selectedtheme()
+					library.deletetheme(cfg)
+					refreshthemes()
+					library.notify('deleted theme "' .. cfg .. '"')
+				end)
+			end,
+		},
+	})
+	refreshthemes()
+
+	-- Optional color editors: few keys, one Drawing batch per frame, never on click thread
+	local themeBuilding = false
+	local themeReady = false
+	local coreThemeFields = {
+		{ "accent", "accent" },
+		{ "bright text", "bright" },
+		{ "mid text", "mid" },
+		{ "dim text", "dim" },
+		{ "panel", "panel" },
+		{ "field", "field" },
+		{ "edge", "edge" },
+		{ "ui background", "stripe", alpha = true, alphakey = "stripe_alpha" },
+	}
+	local extraThemeFields = {
+		{ "field hover", "fieldhover" },
+		{ "outline", "outline", alpha = true, alphakey = "outline_alpha" },
+		{ "black", "black" },
+		{ "overlay background", "ovstripe", alpha = true, alphakey = "ovstripe_alpha" },
+		{ "tab fill", "tabfill" },
+		{ "tab hover", "tabhover" },
+		{ "tab edge", "tabedge" },
+		{ "brand plate", "brandplate" },
+		{ "overlay header", "ovheadbg" },
+		{ "overlay header text", "ovheadfg" },
+		{ "notify bg", "notebg", alpha = true, alphakey = "notebg_alpha" },
+		{ "separators", "wmbar" },
+		{ "grad field top", "gfield_t" },
+		{ "grad field bot", "gfield_b" },
+		{ "grad hover top", "ghover_t" },
+		{ "grad hover bot", "ghover_b" },
+		{ "grad accent top", "gaccent_t" },
+		{ "grad accent bot", "gaccent_b" },
+	}
+
+	local function addThemePicker(entry)
+		local label, key = entry[1], entry[2]
+		local alphakey = entry.alphakey
+		local themecur = R.gettheme()
+		local picker = theme.colorpicker({
+			name = label,
+			default = themecur[key],
+			alpha = entry.alpha == true,
+			defaultalpha = alphakey and themecur[alphakey] or 1,
+			flag = "theme." .. key,
+			callback = function(color, a)
+				local data = { [key] = color }
+				if alphakey and type(a) == "number" then
+					data[alphakey] = a
+				end
+				-- silent targeted apply — avoid full UI rebuild storms
+				library.applytheme(data, true)
+			end,
+		})
+		picker.alphakey = alphakey
+		themepickers[key] = picker
+	end
+
+	local function layoutThemeColumn()
+		if library.active ~= tab then
+			return
+		end
+		local column = tab.columns and tab.columns[1]
+		if column then
+			pcall(R.layoutcolumn, column, 1)
+		end
+		pcall(R.refresh)
+	end
+
+	local function buildThemePickers(list, done)
+		task.spawn(function()
+			for i, entry in ipairs(list) do
+				if not themepickers[entry[2]] then
+					pcall(addThemePicker, entry)
+					run.RenderStepped:Wait()
+					if i % 2 == 0 then
+						pcall(layoutThemeColumn)
+					end
+				end
+			end
+			pcall(layoutThemeColumn)
+			if done then
+				pcall(done)
+			end
+		end)
+	end
+
+	theme.button({
+		name = "load theme colors",
+		callback = function()
+			if themeBuilding then
+				return
+			end
+			themeBuilding = true
+			buildThemePickers(coreThemeFields, function()
+				themeReady = true
+				themeBuilding = false
+			end)
+		end,
+	})
+	theme.button({
+		name = "load extra colors",
+		callback = function()
+			if themeBuilding then
+				return
+			end
+			themeBuilding = true
+			buildThemePickers(extraThemeFields, function()
+				themeBuilding = false
+			end)
+		end,
+	})
+
+	-- Do NOT auto-build pickers on tab open — that was crashing clients.
+	-- User presses "load theme colors" when they want them.
+	tab._ensure = nil
+
+	local box = tab.groupbox("configs", "right")
+	local configname = box.textbox({ name = "name", placeholder = "config name", nosave = true })
+	local list = box.dropdown({ name = "configs", nosave = true })
+
+	local function refreshlist()
+		attempt(function() list.setoptions(library.configs()) end)
+	end
+
+	local function selected()
+		assert(list.value, "select a config first")
+		return list.value
+	end
+
+	box.button({ name = "create", callback = function() attempt(function()
+		local cfg = configname.value:gsub("[^%w%s%-_]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+		assert(cfg ~= "", "enter a config name")
+		assert(not isfile(R.configpath(cfg)), "config already exists, use overwrite")
+		library.save(cfg, function()
+			refreshlist()
+			list.set(cfg)
+		end)
+	end) end })
+	box.buttonrow({
+		{ name = "load", callback = function() attempt(function() library.load(selected()) end) end },
+		{ name = "overwrite", callback = function() attempt(function() library.save(selected()) end) end },
+	})
+	box.buttonrow({
+		{ name = "refresh", callback = refreshlist },
+		{ name = "delete", callback = function() attempt(function()
+			local cfg = selected()
+			library.delete(cfg)
+			refreshlist()
+			library.notify('deleted "' .. cfg .. '"')
+		end) end },
+	})
+
+	refreshlist()
+
+	local extras = tab.groupbox("extras", "right")
+	local uibind = extras.keyfield({
+		name = "ui bind",
+		callback = function(key)
+			if key then
+				togglekey = key
+				uibind.set(togglekey)
+				library.notify({
+					{ "ui bind ", "bright" },
+					{ key.Name:lower(), "accent" },
+				})
+			else
+				uibind.set(togglekey)
+			end
+		end,
+	})
+	uibind.set(togglekey)
+
+	local function setpatterntargets(list)
+		pattern_targets = {}
+		for _, name in ipairs(list or {}) do
+			pattern_targets[name] = true
+		end
+		if R.applypatterns then R.applypatterns() end
+	end
+
+	local patternbg = extras.toggle({
+		name = "pattern background",
+		default = true,
+		callback = function(v)
+			pattern_on = v == true
+			if R.applypatterns then R.applypatterns() end
+		end,
+	})
+	extras.dropdown({
+		name = "apply to",
+		multi = true,
+		options = { "main ui", "overlays" },
+		default = { "main ui", "overlays" },
+		parent = patternbg,
+		callback = setpatterntargets,
+	})
+	extras.dropdown({
+		name = "pattern",
+		options = { "diagonal", "skeet", "grid" },
+		default = "diagonal",
+		parent = patternbg,
+		callback = function(v)
+			pattern_style = v or "diagonal"
+			if R.applypatterns then R.applypatterns() end
+		end,
+	})
+
+	extras.button({
+		name = "boom bam kabloow",
+		callback = function()
+			library.notify({
+				{ "xaxaaxxaax I love that femboyo ", "bright" },
+				{ "( xhafo loves feet )", "accent" },
+			})
+		end,
+	})
+
+	return tab
+end
+
+	R.applypatterns()
+	end
+	setup_overlays()
+end
+
+do
+	local function setup_drag_input()
+local DRAG_SMOOTH = 18
+
+function R.clamped(pos, snap)
+	local x = clamp(pos.X, 0, max(view.X - width, 0))
+	local y = clamp(pos.Y, 0, max(view.Y - height, 0))
+	if snap ~= false then
+		x, y = floor(x), floor(y)
+	end
+	return v2(x, y)
+end
+
+function R.stopdrag()
+	if dragloop then dragloop:Disconnect() end
+	dragging, overlaydrag, dragloop, target = nil, nil, nil, nil
+end
+
+local function dragalpha(dt)
+	return 1 - math.exp(-DRAG_SMOOTH * dt)
+end
+
+function R.startdrag(offset)
+	R.stopdrag()
+	dragging, target = offset, library.position
+	dragloop = run.RenderStepped:Connect(function(dt)
+		target = R.clamped(uis:GetMouseLocation() - dragging, false)
+		local cur = library.position
+		local nxt = cur:Lerp(target, dragalpha(dt))
+		if (nxt - cur).Magnitude > 0.05 then
+			library.position = nxt
+			for _, s in ipairs(objects) do R.place(s) end
+		end
+	end)
+end
+
+function R.startoverlaydrag(panel, grab)
+	R.stopdrag()
+	overlaydrag = { panel = panel, grab = grab, target = panel.pos }
+	dragloop = run.RenderStepped:Connect(function(dt)
+		overlaydrag.target = R.clampoverlay(panel, uis:GetMouseLocation() - grab, false)
+		local cur = panel.pos
+		local nxt = cur:Lerp(overlaydrag.target, dragalpha(dt))
+		if (nxt - cur).Magnitude > 0.05 then
+			R.moveoverlay(panel, nxt, false)
+		end
+	end)
+end
+
+function library.move(pos)
+	library.position = R.clamped(pos)
+	for _, s in ipairs(objects) do
+		R.place(s)
+	end
+end
+
+function library.toggle(state)
+	if state == nil then state = not library.open end
+	if state == library.open then return end
+	library.open = state
+	R.stopdrag()
+	sliding = nil
+	if capture then capture.release() end
+	if popup then popup.close() end
+	R.closefloat()
+	R.sethover(nil)
+	R.block(state)
+	if state then return R.refresh() end
+	R.fadeout(objects, function()
+		if not library.open then R.refresh() end
+	end)
+end
+
+function library.unload()
+	R.stopdrag()
+	if animloop then animloop:Disconnect() end
+	if watermarkloop then watermarkloop:Disconnect() end
+	if playerlistloop then playerlistloop:Disconnect() end
+	if hudloop then hudloop:Disconnect() end
+	animloop, watermarkloop, playerlistloop, hudloop = nil, nil, nil, nil
+	for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
+	for _, s in ipairs(objects) do pcall(function() s:Remove() end) end
+	for _, s in ipairs(overlays) do pcall(function() s:Remove() end) end
+
+	pcall(function()
+		local line = env._testline
+		if line then line:Remove() end
+		env._testline = nil
+	end)
+	R.block(false)
+	pcall(function() blocker:Destroy() end)
+	for _, list in ipairs({ objects, offsets, owners, hidden, clipped, alpha, tweens, tabs, hitboxes, toggles, sliders, flags, overlays }) do
+		table.clear(list)
+	end
+	if env.library == library then env.library = nil end
+end
+
+function R.pointer()
+	local rel = uis:GetMouseLocation() - library.position
+	return rel, R.find(rel)
+end
+
+function R.dismiss(hb)
+	if capture and not (hb and hb.capture == capture) then capture.release() end
+	if popup and not (hb and hb.dropdown == popup) then
+		popup.close()
+		return true
+	end
+	if floating and not (hb and hb.box == floating) then
+		R.closefloat()
+		return true
+	end
+end
+
+function R.click()
+	local rel, hb = R.pointer()
+	if R.dismiss(hb) then return end
+	if hb then
+		hb.click(rel)
+	elseif R.inside(rel, 0, 0, width, height) then
+		R.startdrag(rel)
+	end
+end
+
+function R.rightclick()
+	local rel, hb = R.pointer()
+	if hb and hb.rightclick then
+		if capture then capture.release() end
+		if popup then popup.close() end
+		hb.rightclick(rel)
+	else
+		R.dismiss(hb)
+	end
+end
+
+function R.boxat(rel)
+	local tab = library.active
+	if not tab or floating then return end
+	for _, column in ipairs(tab.columns) do
+		for _, box in ipairs(column) do
+			if R.inside(rel, box.x, box.y, box.w, box.h) then return box end
+		end
+	end
+end
+
+function R.presskey(input, down)
+	for _, t in ipairs(toggles) do
+		if t.key == input.KeyCode then
+			if t.mode == "hold" then
+				t.set(down)
+			elseif t.mode == "toggle" and down then
+				t.set(not t.value)
+			end
+		end
+	end
+end
+
+function R.stopkeyrepeat()
+	keyrepeat.code, keyrepeat.next = nil, 0
+end
+
+function R.keyrepeatable(code)
+	if code == keys.Return or code == keys.Escape then return false end
+	if code == keys.Backspace or code == keys.Space then return true end
+	if code == keys.Period or code == keys.KeypadPeriod then return true end
+	if code == keys.Minus or code == keys.KeypadMinus then return true end
+	local char = uis:GetStringForKeyCode(code)
+	return char ~= nil and #char == 1
+end
+
+function R.startkeyrepeat(code)
+	if not R.keyrepeatable(code) then return end
+	keyrepeat.code = code
+	keyrepeat.next = clock() + KEY_REPEAT_DELAY
+end
+
+function R.tickkeyrepeat()
+	local code = keyrepeat.code
+	if not code or not capture or not capture.key then
+		if code then R.stopkeyrepeat() end
+		return
+	end
+	if not uis:IsKeyDown(code) then
+		R.stopkeyrepeat()
+		return
+	end
+	local now = clock()
+	if now < keyrepeat.next then return end
+	capture.key({ KeyCode = code, UserInputType = keyboard })
+	keyrepeat.next = now + KEY_REPEAT_RATE
+end
+
+R.connect(uis.InputBegan, function(input, typing)
+	local kind = input.UserInputType
+	if kind == mouse1 then
+		if not library.open then return end
+		local m = uis:GetMouseLocation()
+		local panel = R.hitoverlay(m)
+		if panel then
+			if capture then capture.release() end
+			if popup then popup.close() end
+			R.closefloat()
+			R.startoverlaydrag(panel, m - panel.pos)
+			return
+		end
+		R.click()
+	elseif kind == mouse2 then
+		if library.open then R.rightclick() end
+	elseif kind == keyboard then
+		if capture then
+			capture.key(input)
+			R.startkeyrepeat(input.KeyCode)
+			return
+		end
+		-- menu bind always opens/closes, even if the game marks the key as processed
+		if togglekey and input.KeyCode == togglekey then
+			library.toggle()
+			return
+		end
+		if typing or uis:GetFocusedTextBox() then return end
+		R.presskey(input, true)
+	end
+end)
+
+R.connect(uis.InputChanged, function(input)
+	if not library.open then return end
+	local kind = input.UserInputType
+	if kind ~= mousemove and kind ~= wheel then return end
+	if dragging or overlaydrag then return end
+	local rel = uis:GetMouseLocation() - library.position
+	if kind == wheel then
+		local dir = input.Position.Z > 0 and -1 or 1
+		if popup and popup.wheel then
+			popup.wheel(dir)
+		else
+			local box = R.boxat(rel)
+			if box then R.scroll(box, dir) end
+		end
+	elseif sliding then
+		sliding.drag(rel)
+	end
+	R.sethover(R.find(rel))
+end)
+
+R.connect(uis.InputEnded, function(input)
+	local kind = input.UserInputType
+	if kind == keyboard then
+		if keyrepeat.code == input.KeyCode then R.stopkeyrepeat() end
+		R.presskey(input, false)
+	elseif kind == mouse1 then
+		sliding = nil
+		if overlaydrag then
+			local panel, goal = overlaydrag.panel, R.clampoverlay(overlaydrag.panel, overlaydrag.target)
+			local from = panel.pos
+			R.stopdrag()
+			if (from - goal).Magnitude > 0.5 then
+				local settle = R.animated(from, function(pos) R.moveoverlay(panel, pos, false) end)
+				R.tween(settle, "pos", goal, 0.14)
+			else
+				R.moveoverlay(panel, goal)
+			end
+		elseif dragging then
+			local goal = R.clamped(target or library.position)
+			local from = library.position
+			R.stopdrag()
+
+			if (from - goal).Magnitude > 0.5 then
+				local settle = R.animated(from, function(pos)
+					library.position = pos
+					for _, s in ipairs(objects) do R.place(s) end
+				end)
+				R.tween(settle, "pos", goal, 0.14)
+			else
+				library.move(goal)
+			end
+		end
+	end
+end)
+
+R.connect(camera:GetPropertyChangedSignal("ViewportSize"), function()
+	view = camera.ViewportSize
+	library.move(library.position)
+	if watermark.on and not watermark.moved then
+		watermark.pos = R.ovdefault(watermark, "watermark")
+		R.paintwatermark(lastfps)
+	end
+	if hotkeys.on and not hotkeys.moved then
+		hotkeys.pos = R.ovdefault(hotkeys, "hotkeys")
+		R.painthotkeys()
+	end
+	if playerlist.on and not playerlist.moved then
+		playerlist.pos = R.ovdefault(playerlist, "playerlist")
+		R.paintplayerlist()
+	end
+	if hud.on and not hud.moved then
+		hud.pos = R.ovdefault(hud, "hud")
+		R.painthud()
+	end
+end)
+
+R.connect(run.RenderStepped, function()
+	R.tickscrollhints()
+	R.tickkeyrepeat()
+end)
+
+library.move((view - v2(width, height)) / 2)
+R.block(true)
+themesnap = R.gettheme()
+-- apply saved default only; factory look is the Default preset / built-in locals
+pcall(function()
+	local meta = library.getdefault and library.getdefault()
+	if meta then library.applydefault(true) end
+end)
+	end
+	setup_drag_input()
+end
+
+env.library = library
+return library
